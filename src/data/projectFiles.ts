@@ -178,13 +178,24 @@ jobs:
           sha256sum *.apk > checksums.sha256
           cat checksums.sha256
 
+      - name: Generate Automated Release Notes
+        run: |
+          chmod +x scripts/generate_release_notes.sh
+          ./scripts/generate_release_notes.sh \
+            --format markdown \
+            --output RELEASE_NOTES.md \
+            --version "\${{ github.ref_name }}" \
+            --include-checksums
+          cat RELEASE_NOTES.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: RELEASE_NOTES.md
           files: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/apk/release/checksums.sha256
-          generate_release_notes: true
+            RELEASE_NOTES.md
           draft: false
           prerelease: false
 `
@@ -1672,6 +1683,283 @@ dependencies {
 - \`:ai\` — Transactional patch engine & offline GGUF llama.cpp
 - \`:workspace\` — Session restore and auto-save
 - \`:plugins\` — Plugin SDK and CRDT collaboration
+`
+  },
+  {
+    path: 'scripts/generate_release_notes.sh',
+    name: 'generate_release_notes.sh',
+    category: 'config',
+    language: 'bash',
+    description: 'Automated POSIX script to parse Git commit ranges and generate structured Markdown/Text APK release notes.',
+    content: `#!/usr/bin/env bash
+# ==============================================================================
+# TermuxXCoder - Automated APK Release Notes Generator
+# Parses commit range since last tag and outputs Markdown or Plain Text notes.
+# ==============================================================================
+set -euo pipefail
+
+OUTPUT_FILE="RELEASE_NOTES.md"
+FORMAT="markdown"
+INCLUDE_CHECKSUMS="true"
+FROM_TAG=""
+TO_REF="HEAD"
+VERSION_OVERRIDE=""
+
+usage() {
+  cat << EOF
+Usage: $0 [OPTIONS]
+
+Options:
+  -o, --output FILE       Target output file (default: RELEASE_NOTES.md)
+  -f, --format FORMAT     Output format: markdown | text (default: markdown)
+  --from TAG              Starting tag/commit (default: latest git tag)
+  --to REF                Ending tag/commit (default: HEAD)
+  -v, --version VER       Version title override (default: auto-detected)
+  --no-checksums          Disable APK SHA-256 checksum calculation
+  -h, --help              Show this help message
+EOF
+  exit 0
+}
+
+# Parse Command-Line Arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o|--output) OUTPUT_FILE="$2"; shift 2 ;;
+    -f|--format) FORMAT="$2"; shift 2 ;;
+    --from) FROM_TAG="$2"; shift 2 ;;
+    --to) TO_REF="$2"; shift 2 ;;
+    -v|--version) VERSION_OVERRIDE="$2"; shift 2 ;;
+    --no-checksums) INCLUDE_CHECKSUMS="false"; shift ;;
+    -h|--help) usage ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+echo "🔍 Generating TermuxXCoder Release Notes..."
+
+# Detect previous git tag if not specified
+if [ -z "$FROM_TAG" ]; then
+  if git describe --tags --abbrev=0 2>/dev/null; then
+    FROM_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo "")
+  fi
+fi
+
+# Determine commit range
+if [ -n "$FROM_TAG" ]; then
+  COMMIT_RANGE="\${FROM_TAG}..\${TO_REF}"
+  echo "📌 Parsing commit range: \${COMMIT_RANGE}"
+else
+  COMMIT_RANGE="\${TO_REF}"
+  echo "📌 No previous tag found. Parsing entire history up to \${TO_REF}"
+fi
+
+# Detect version
+if [ -z "$VERSION_OVERRIDE" ]; then
+  if [ -n "$FROM_TAG" ]; then
+    VERSION_TITLE="Release $(git describe --tags --always 2>/dev/null || echo 'v1.0.0')"
+  else
+    VERSION_TITLE="TermuxXCoder Initial Build"
+  fi
+else
+  VERSION_TITLE="$VERSION_OVERRIDE"
+fi
+
+TODAY=$(date +"%Y-%m-%d")
+
+# Temporary commit categories
+FEATS=()
+FIXES=()
+PERFS=()
+REFACTORS=()
+CIS=()
+DOCS=()
+CHORES=()
+
+# Extract git log entries: hash%x09author%x09message
+while IFS=$'\\t' read -r hash author msg; do
+  [ -z "$hash" ] && continue
+  
+  # Categorization by Conventional Commits prefix
+  if [[ "$msg" =~ ^(feat|feature|add|implement)(\\(.*\\))?:\ (.*) ]]; then
+    scope="\${BASH_REMATCH[2]:-}"
+    clean="\${BASH_REMATCH[3]}"
+    FEATS+=("- \${scope:+**\${scope}** }\${clean} (\`\${hash:0:7}\` by @\${author})")
+  elif [[ "$msg" =~ ^(fix|bug|patch|hotfix)(\\(.*\\))?:\ (.*) ]]; then
+    scope="\${BASH_REMATCH[2]:-}"
+    clean="\${BASH_REMATCH[3]}"
+    FIXES+=("- \${scope:+**\${scope}** }\${clean} (\`\${hash:0:7}\`)")
+  elif [[ "$msg" =~ ^(perf|optimize)(\\(.*\\))?:\ (.*) ]]; then
+    PERFS+=("- \${msg} (\`\${hash:0:7}\`)")
+  elif [[ "$msg" =~ ^(refactor|arch|module)(\\(.*\\))?:\ (.*) ]]; then
+    REFACTORS+=("- \${msg} (\`\${hash:0:7}\`)")
+  elif [[ "$msg" =~ ^(ci|build|chore|deps)(\\(.*\\))?:\ (.*) ]]; then
+    CIS+=("- \${msg} (\`\${hash:0:7}\`)")
+  elif [[ "$msg" =~ ^(docs?|specs?)(\\(.*\\))?:\ (.*) ]]; then
+    DOCS+=("- \${msg} (\`\${hash:0:7}\`)")
+  else
+    CHORES+=("- \${msg} (\`\${hash:0:7}\`)")
+  fi
+done < <(git log "$COMMIT_RANGE" --pretty=format:"%h%x09%an%x09%s" 2>/dev/null || true)
+
+# Write Release Notes output
+{
+  if [ "$FORMAT" = "markdown" ]; then
+    echo "# $VERSION_TITLE"
+    echo ""
+    echo "> **Release Date:** $TODAY  "
+    echo "> **Commit Range:** \`$COMMIT_RANGE\`  "
+    echo "> **Target Architecture:** Android 10+ (API 29–34) Universal APK  "
+    echo ""
+    echo "### 📱 Overview"
+    echo "This release of **TermuxXCoder** includes features and fixes across the Sora Editor, embedded Termux PTY, JGit, and Language Server protocols."
+    echo ""
+
+    if [ \${#FEATS[@]} -gt 0 ]; then
+      echo "## 🚀 What's New & Features"
+      printf "%s\\n" "\${FEATS[@]}"
+      echo ""
+    fi
+
+    if [ \${#FIXES[@]} -gt 0 ]; then
+      echo "## 🐛 Bug Fixes & Stability"
+      printf "%s\\n" "\${FIXES[@]}"
+      echo ""
+    fi
+
+    if [ \${#PERFS[@]} -gt 0 ]; then
+      echo "## ⚡ Performance & Optimization"
+      printf "%s\\n" "\${PERFS[@]}"
+      echo ""
+    fi
+
+    if [ \${#REFACTORS[@]} -gt 0 ]; then
+      echo "## 🛠️ Architecture & Modules"
+      printf "%s\\n" "\${REFACTORS[@]}"
+      echo ""
+    fi
+
+    if [ \${#CIS[@]} -gt 0 ]; then
+      echo "## 📦 CI/CD & Build System"
+      printf "%s\\n" "\${CIS[@]}"
+      echo ""
+    fi
+
+    if [ \${#DOCS[@]} -gt 0 ]; then
+      echo "## 📖 Documentation"
+      printf "%s\\n" "\${DOCS[@]}"
+      echo ""
+    fi
+
+    # Checksums table
+    if [ "$INCLUDE_CHECKSUMS" = "true" ]; then
+      echo "## 📦 APK Artifacts & Integrity Verification"
+      echo ""
+      echo "| File Name | Size | SHA-256 Checksum |"
+      echo "| :--- | :--- | :--- |"
+      
+      APK_FILES=$(find app/build/outputs/apk/ -type f -name "*.apk" 2>/dev/null || true)
+      if [ -n "$APK_FILES" ]; then
+        while read -r apk; do
+          apk_basename=$(basename "$apk")
+          apk_size=$(du -h "$apk" | cut -f1)
+          apk_sha=$(sha256sum "$apk" | awk '{print $1}')
+          echo "| \`$apk_basename\` | $apk_size | \`$apk_sha\` |"
+        done <<< "$APK_FILES"
+      else
+        echo "| \`TermuxXCoder-release.apk\` | ~25 MB | \`Pending CI Build\` |"
+      fi
+      echo ""
+    fi
+
+    echo "## 📲 Installation Guide"
+    echo "1. Download the \`.apk\` artifact from GitHub Releases assets."
+    echo "2. Install on any Android 10+ device (arm64-v8a, armeabi-v7a, x86_64)."
+    echo "3. Launch TermuxXCoder to initialize Sora Editor & PTY Terminal environment."
+    echo ""
+    echo "---"
+    echo "*Generated automatically by TermuxXCoder CI/CD Release Tool.*"
+  else
+    echo "======================================================================"
+    echo "  TERMUX XCODER APK RELEASE NOTES - $VERSION_TITLE"
+    echo "  Date: $TODAY | Range: $COMMIT_RANGE"
+    echo "======================================================================"
+    echo ""
+    if [ \${#FEATS[@]} -gt 0 ]; then
+      echo "[NEW FEATURES & ENHANCEMENTS]"
+      printf "%s\\n" "\${FEATS[@]}"
+      echo ""
+    fi
+    if [ \${#FIXES[@]} -gt 0 ]; then
+      echo "[BUG FIXES & STABILITY]"
+      printf "%s\\n" "\${FIXES[@]}"
+      echo ""
+    fi
+  fi
+} > "$OUTPUT_FILE"
+
+echo "✅ Release notes written to $OUTPUT_FILE"
+`
+  },
+  {
+    path: 'RELEASE_NOTES.md',
+    name: 'RELEASE_NOTES.md',
+    category: 'doc',
+    language: 'markdown',
+    description: 'Sample generated release notes formatted with conventional commit breakdown and SHA-256 APK checksums.',
+    content: `# Release v1.0.0-rc1 (Build 10001)
+
+> **Release Date:** 2026-08-24  
+> **Target Android:** Android 10 (API 29) to Android 14 (API 34)  
+> **Commit Range:** \`v0.9.5...HEAD\` (13 commits)
+
+### 📱 Overview
+This release of **TermuxXCoder** brings new features, architectural performance upgrades, and stability enhancements across the Sora Editor, embedded Termux PTY, JGit tooling, and language server protocols.
+
+## 🚀 What's New & Features
+- **[editor]** integrate Sora Editor 0.23.5 with custom Kotlin TextMate grammar (\`a4f89d1\` by @Alex Rivera)
+- **[pty]** embed Termux PTY C-native bridge with openpty, forkpty, and JNI bindings (\`b9c12e4\` by @Elena Rostova)
+- **[git]** add JGit 7.2.0 local commit, branch staging, and SSH key manager (\`e1f99b3\` by @Sara Chen)
+- **[ai]** integrate local GGUF on-device inference with prompt streaming (\`4d55b99\` by @Alex Rivera)
+
+## 🐛 Bug Fixes & Stability
+- **[lsp]** resolve Kotlin language server stdio stream deadlock on Android 14 (\`c3d55f0\`)
+- **[dap]** fix variable inspection breakpoint timeout in embedded debug server (\`f2a00c4\`)
+- **[pty]** fix pseudo-terminal ANSI color palette escape code rendering (\`5e66c00\`)
+
+## ⚡ Performance & Optimization
+- **[syntax]** optimize incremental syntax tokenizer cache for 50k+ LOC files (\`d7e88a2\`)
+- **[io]** implement fast disk cache for file tree workspace exploration (\`6f77d11\`)
+
+## 🛠️ Architecture & Modules
+- **[modules]** decouple core-editor and core-pty into standalone Gradle library modules (\`09b11d5\`)
+
+## 🔒 Security & Signing
+- **[keystore]** enforce Base64 encrypted secret ingestion in release workflow (\`2b33f77\`)
+
+## 📦 Build System & GitHub Actions
+- **[github]** add automated APK signing and SHA-256 artifact verification pipeline (\`1a22e66\`)
+
+## 📖 Documentation & Specs
+- add Volume 1 to 10 architectural documentation suite (\`3c44a88\`)
+
+## 📦 APK Artifacts & Integrity Verification
+
+| File Name | Architecture | Size | SHA-256 Checksum |
+| :--- | :--- | :--- | :--- |
+| \`TermuxXCoder-v1.0.0-release.apk\` | Universal (arm64-v8a, armeabi-v7a, x86_64) | ~24.8 MB | \`7d2a89f9e2b10a56f84c31e909a8f27329b3c41ef0891a27e365cb88421a9d45\` |
+
+### 🔒 Verify Checksum on Terminal:
+\`\`\`bash
+echo "7d2a89f9e2b10a56f84c31e909a8f27329b3c41ef0891a27e365cb88421a9d45  TermuxXCoder-v1.0.0-release.apk" | sha256sum -c
+\`\`\`
+
+## 📲 Installation Guide
+1. Download \`TermuxXCoder-v1.0.0-release.apk\` from GitHub Releases assets.
+2. If Android prompts "Install unknown apps", grant permission for your browser or file manager.
+3. Launch **TermuxXCoder** — Embedded PTY terminal bootstrap and Sora editor start instantly.
+
+---
+*Generated automatically by TermuxXCoder CI/CD Release Notes Suite.*
 `
   }
 ];

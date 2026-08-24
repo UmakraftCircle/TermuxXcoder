@@ -84,25 +84,25 @@ export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFi
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+      {/* Header Bento Card */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-purple-950/60 border border-purple-700/50 flex items-center justify-center">
-            <Sparkles className="h-5 w-5 text-purple-400" />
+          <div className="h-10 w-10 rounded-xl bg-[#bc8cff]/15 border border-[#bc8cff]/40 flex items-center justify-center">
+            <Sparkles className="h-5 w-5 text-[#bc8cff]" />
           </div>
           <div>
-            <h2 className="text-base sm:text-lg font-bold text-white">
+            <h2 className="text-base sm:text-lg font-bold text-[#f0f6fc]">
               AI Code & Workflow Customizer
             </h2>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[#8b949e]">
               Ask questions or generate custom Gradle modules, NDK scripts, and GitHub CI actions.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Preset Queries */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      {/* Preset Queries Bento Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {presets.map((preset, idx) => (
           <button
             key={idx}
@@ -110,21 +110,21 @@ export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFi
               setPrompt(preset.query);
               handleSendPrompt(preset.query);
             }}
-            className="text-left p-3 rounded-xl bg-slate-900/50 hover:bg-slate-800/60 border border-slate-800/80 text-xs transition-colors group"
+            className="text-left p-3.5 rounded-xl bg-[#161b22] hover:bg-[#21262d] border border-[#30363d] hover:border-[#8b949e]/50 text-xs transition-colors group shadow-sm"
           >
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-200 group-hover:text-cyan-400 transition-colors">
+              <span className="font-semibold text-[#c9d1d9] group-hover:text-[#58a6ff] transition-colors">
                 {preset.title}
               </span>
-              <Zap className="h-3.5 w-3.5 text-slate-500 group-hover:text-amber-400" />
+              <Zap className="h-3.5 w-3.5 text-[#8b949e] group-hover:text-[#d29922]" />
             </div>
-            <p className="text-[11px] text-slate-400 mt-1 line-clamp-1">{preset.query}</p>
+            <p className="text-[11px] text-[#8b949e] mt-1 line-clamp-1">{preset.query}</p>
           </button>
         ))}
       </div>
 
-      {/* Input Area */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+      {/* Input Area Bento Card */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-4 shadow-sm">
         <div className="flex gap-2">
           <input
             type="text"
@@ -134,12 +134,12 @@ export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFi
               if (e.key === 'Enter') handleSendPrompt(prompt);
             }}
             placeholder="Ask about Gradle configuration, NDK PTY, JGit, or GitHub workflows..."
-            className="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-sans"
+            className="flex-1 px-4 py-2.5 bg-[#0d1117] border border-[#30363d] rounded-xl text-xs text-[#f0f6fc] placeholder-[#8b949e] focus:outline-none focus:border-[#58a6ff] font-sans"
           />
           <button
             onClick={() => handleSendPrompt(prompt)}
             disabled={isLoading || !prompt.trim()}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-xl transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1f6feb] hover:bg-[#388bfd] text-white font-semibold text-xs rounded-xl transition-all border border-[#388bfd]/50 disabled:opacity-50 shadow-sm"
           >
             <Send className="h-3.5 w-3.5" />
             <span>{isLoading ? 'Thinking...' : 'Generate'}</span>
@@ -147,24 +147,24 @@ export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFi
         </div>
       </div>
 
-      {/* Response Box */}
+      {/* Response Box Bento Card */}
       {response && (
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="bg-slate-950 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+        <div className="bg-[#161b22] border border-[#30363d] rounded-2xl overflow-hidden shadow-sm">
+          <div className="bg-[#161b22] px-4 py-2.5 border-b border-[#30363d] flex items-center justify-between">
+            <span className="text-xs font-semibold text-[#c9d1d9] flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-[#bc8cff]" />
               AI Assistant Recommendations
             </span>
             <button
               onClick={handleCopy}
-              className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+              className="text-xs text-[#58a6ff] hover:text-[#79c0ff] flex items-center gap-1"
             >
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5" />}
               <span>{copied ? 'Copied' : 'Copy'}</span>
             </button>
           </div>
 
-          <div className="p-4 bg-slate-950/80 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">
+          <div className="p-4 bg-[#0d1117] font-mono text-xs text-[#c9d1d9] whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">
             {response}
           </div>
         </div>

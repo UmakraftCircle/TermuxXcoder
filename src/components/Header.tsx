@@ -2,14 +2,9 @@ import React, { useState } from 'react';
 import {
   Github,
   Download,
-  Terminal,
-  CheckCircle2,
-  Cpu,
-  Layers,
-  Sparkles,
-  ExternalLink,
-  GitBranch,
-  ShieldCheck
+  Settings,
+  Code2,
+  Sparkles
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { exportProjectToZip, downloadBlob } from '../utils/zipExporter';
@@ -17,21 +12,32 @@ import { ProjectFile } from '../types';
 
 interface HeaderProps {
   files: ProjectFile[];
+  activeTab: string;
   onOpenQuickPush: () => void;
+  onToggleSlideDrawer: () => void;
+  onGoToCoder?: () => void;
+  isSlideDrawerOpen?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ files, onOpenQuickPush }) => {
+export const Header: React.FC<HeaderProps> = ({
+  files,
+  activeTab,
+  onOpenQuickPush,
+  onToggleSlideDrawer,
+  onGoToCoder,
+  isSlideDrawerOpen
+}) => {
   const [isExporting, setIsExporting] = useState(false);
 
   const handleDownloadZip = async () => {
     try {
       setIsExporting(true);
-      const blob = await exportProjectToZip(files, 'TermuxXCoder-main');
-      downloadBlob(blob, 'TermuxXCoder-GitHub-Ready.zip');
+      const blob = await exportProjectToZip(files, 'Umakraft-TermuxXCoder-main');
+      downloadBlob(blob, 'Umakraft-TermuxXCoder-GitHub-Ready.zip');
 
       confetti({
-        particleCount: 80,
-        spread: 60,
+        particleCount: 70,
+        spread: 50,
         origin: { y: 0.2 }
       });
     } catch (e) {
@@ -42,52 +48,79 @@ export const Header: React.FC<HeaderProps> = ({ files, onOpenQuickPush }) => {
   };
 
   return (
-    <header className="border-b border-slate-800 bg-slate-950/90 backdrop-blur sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Brand & Title */}
-        <div className="flex items-center space-x-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-600 via-indigo-600 to-emerald-500 p-0.5 shadow-lg shadow-cyan-900/30 flex items-center justify-center">
-            <div className="h-full w-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-              <Terminal className="h-5 w-5 text-cyan-400" />
+    <header className="border-b border-[#30363d] bg-[#161b22]/95 backdrop-blur z-30 flex-shrink-0 shadow-sm">
+      <div className="w-full px-3 sm:px-4 h-14 flex items-center justify-between">
+        {/* Left Section: Drawer Toggle Gear */}
+        <div className="flex items-center gap-2">
+          <button
+            id="btn-gear-functions-toggle"
+            onClick={onToggleSlideDrawer}
+            title="App Drawer & Functions"
+            aria-label="Open Functions Menu"
+            className={`flex items-center justify-center h-10 w-10 min-h-[44px] min-w-[44px] rounded-xl border transition-all active:scale-95 group ${
+              isSlideDrawerOpen
+                ? 'bg-[#1f6feb] text-white border-[#388bfd] shadow-lg shadow-[#1f6feb]/30'
+                : 'bg-[#21262d] text-[#c9d1d9] border-[#30363d] hover:bg-[#30363d] hover:text-[#f0f6fc] hover:border-[#58a6ff]/50'
+            }`}
+          >
+            <Settings
+              className={`h-5 w-5 transition-transform group-hover:rotate-45 ${
+                isSlideDrawerOpen ? 'text-white rotate-90' : 'text-[#58a6ff]'
+              }`}
+            />
+          </button>
+
+          {/* Prominent Coder Branding Header */}
+          <button
+            onClick={onGoToCoder}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-[#21262d] transition-all cursor-pointer group"
+            title="Umakraft Coder - Main Editor"
+          >
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-[#1f6feb] to-[#238636] p-0.5 shadow-md flex-shrink-0">
+              <div className="h-full w-full bg-[#0d1117] rounded-[6px] flex items-center justify-center">
+                <Code2 className="h-4 w-4 text-[#58a6ff] group-hover:scale-110 transition-transform" />
+              </div>
             </div>
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                TermuxXCoder
-                <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-700/60 text-cyan-300 font-mono">
-                  v1.0 APK Prep
+
+            <div className="flex flex-col text-left">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono font-bold text-sm sm:text-base tracking-tight text-[#f0f6fc]">
+                  CODER
                 </span>
-              </h1>
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30 font-semibold">
+                  PRO
+                </span>
+              </div>
+              <span className="text-[10px] text-[#8b949e] font-mono -mt-0.5 hidden xs:inline">
+                Umakraft IDE
+              </span>
             </div>
-            <p className="text-xs text-slate-400 hidden sm:block">
-              Modular Android IDE • Sora Editor • Embedded Termux PTY • JGit • LSP • DAP
-            </p>
-          </div>
+          </button>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center space-x-2.5 sm:space-x-3">
-          {/* Quick Push Guide Button */}
+        {/* Right Section: Action Controls */}
+        <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Quick Push Guide Icon Button */}
           <button
             id="btn-quick-push"
             onClick={onOpenQuickPush}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-xs font-medium text-slate-200 transition-colors"
+            title="GitHub Remote Push"
+            aria-label="GitHub Push"
+            className="flex items-center justify-center h-10 w-10 min-h-[44px] min-w-[44px] rounded-xl bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] transition-all active:scale-95"
           >
-            <Github className="h-3.5 w-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">Push to GitHub</span>
-            <span className="sm:hidden">GitHub</span>
+            <Github className="h-5 w-5" />
           </button>
 
-          {/* Download Full Zip */}
+          {/* Download Full Zip Icon Button */}
           <button
             id="btn-export-zip"
             onClick={handleDownloadZip}
             disabled={isExporting}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-semibold text-xs shadow-md shadow-cyan-950/50 transition-all active:scale-95 disabled:opacity-50"
+            title="Export Sandbox Source as ZIP"
+            aria-label="Export ZIP"
+            className="flex items-center justify-center h-10 w-10 min-h-[44px] min-w-[44px] rounded-xl bg-[#238636] hover:bg-[#2ea043] border border-[#3fb950]/30 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
           >
-            <Download className={`h-3.5 w-3.5 ${isExporting ? 'animate-bounce' : ''}`} />
-            <span>{isExporting ? 'Generating ZIP...' : 'Export GitHub ZIP'}</span>
+            <Download className={`h-5 w-5 ${isExporting ? 'animate-bounce' : ''}`} />
           </button>
         </div>
       </div>

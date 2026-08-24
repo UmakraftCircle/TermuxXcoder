@@ -64,35 +64,35 @@ gh repo create ${repoName} --public --source=. --remote=origin --push
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0d1117]/85 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div className="px-6 py-4 bg-[#161b22] border-b border-[#30363d] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-cyan-950/80 border border-cyan-700/60 flex items-center justify-center">
-              <Github className="h-4 w-4 text-cyan-400" />
+            <div className="h-8 w-8 rounded-lg bg-[#21262d] border border-[#30363d] flex items-center justify-center">
+              <Github className="h-4 w-4 text-[#f0f6fc]" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Push to GitHub & Build APK</h3>
-              <p className="text-xs text-slate-400">Step-by-step terminal commands</p>
+              <h3 className="text-sm font-bold text-[#f0f6fc]">Push to GitHub & Build APK</h3>
+              <p className="text-xs text-[#8b949e]">Step-by-step terminal commands</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-1 text-[#8b949e] hover:text-[#f0f6fc] rounded-lg hover:bg-[#21262d] transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5 text-xs text-slate-300">
+        <div className="p-6 overflow-y-auto space-y-5 text-xs text-[#c9d1d9]">
           {/* Step 1 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-white flex items-center gap-2">
-                <span className="h-5 w-5 rounded-full bg-cyan-500/20 text-cyan-400 text-[11px] font-mono flex items-center justify-center">
+              <span className="font-bold text-[#f0f6fc] flex items-center gap-2">
+                <span className="h-5 w-5 rounded-full bg-[#1f6feb]/20 text-[#58a6ff] text-[11px] font-mono flex items-center justify-center border border-[#1f6feb]/40">
                   1
                 </span>
                 Export Project ZIP
@@ -100,62 +100,62 @@ gh repo create ${repoName} --public --source=. --remote=origin --push
               <button
                 onClick={handleDownload}
                 disabled={isExporting}
-                className="flex items-center gap-1.5 px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1 bg-[#238636] hover:bg-[#2ea043] text-white font-bold rounded-lg border border-[#3fb950]/30 transition-colors shadow-sm"
               >
                 <Download className="h-3 w-3" />
                 <span>{isExporting ? 'Exporting...' : 'Download ZIP'}</span>
               </button>
             </div>
-            <p className="text-slate-400 text-[11px] pl-7">
-              Contains all 10 modules, \`.github/workflows/android.yml\`, Gradle 8.7 wrapper, and ProGuard rules.
+            <p className="text-[#8b949e] text-[11px] pl-7">
+              Contains all 10 modules, `.github/workflows/android.yml`, Gradle 8.7 wrapper, and ProGuard rules.
             </p>
           </div>
 
           {/* Step 2 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-white flex items-center gap-2">
-                <span className="h-5 w-5 rounded-full bg-cyan-500/20 text-cyan-400 text-[11px] font-mono flex items-center justify-center">
+              <span className="font-bold text-[#f0f6fc] flex items-center gap-2">
+                <span className="h-5 w-5 rounded-full bg-[#1f6feb]/20 text-[#58a6ff] text-[11px] font-mono flex items-center justify-center border border-[#1f6feb]/40">
                   2
                 </span>
                 Initialize Git and Push to GitHub
               </span>
               <button
                 onClick={() => handleCopy(fullPushScript, 'push-script')}
-                className="text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1 text-[11px]"
+                className="text-[#58a6ff] hover:text-[#79c0ff] font-semibold flex items-center gap-1 text-[11px]"
               >
                 {copiedId === 'push-script' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                 <span>{copiedId === 'push-script' ? 'Copied Commands' : 'Copy Commands'}</span>
               </button>
             </div>
 
-            <div className="bg-slate-950 rounded-xl p-3.5 border border-slate-800 font-mono text-[11.5px] text-slate-300 overflow-x-auto">
+            <div className="bg-[#0d1117] rounded-xl p-3.5 border border-[#30363d] font-mono text-[11.5px] text-[#c9d1d9] overflow-x-auto">
               <pre className="whitespace-pre">{fullPushScript}</pre>
             </div>
           </div>
 
           {/* Step 3 */}
-          <div className="space-y-2 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
-            <span className="font-bold text-white flex items-center gap-2">
-              <span className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-mono flex items-center justify-center">
+          <div className="space-y-2 bg-[#0d1117] p-4 rounded-xl border border-[#30363d]">
+            <span className="font-bold text-[#f0f6fc] flex items-center gap-2">
+              <span className="h-5 w-5 rounded-full bg-[#238636]/20 text-[#3fb950] text-[11px] font-mono flex items-center justify-center border border-[#238636]/40">
                 3
               </span>
               Automatic APK Artifact Download
             </span>
-            <p className="text-slate-400 text-[11px] leading-relaxed pl-7">
+            <p className="text-[#8b949e] text-[11px] leading-relaxed pl-7">
               Once pushed, GitHub Actions triggers automatically. Within 3-4 minutes, open your GitHub repo's{' '}
-              <strong className="text-white">Actions</strong> tab &gt; click the latest workflow run &gt; scroll to{' '}
-              <strong className="text-cyan-400">Artifacts</strong> to download your ready-to-install{' '}
-              <strong className="text-emerald-400">TermuxXCoder-debug-apk</strong>!
+              <strong className="text-[#f0f6fc]">Actions</strong> tab &gt; click the latest workflow run &gt; scroll to{' '}
+              <strong className="text-[#58a6ff]">Artifacts</strong> to download your ready-to-install{' '}
+              <strong className="text-[#3fb950]">TermuxXCoder-debug-apk</strong>!
             </p>
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-3.5 bg-slate-950 border-t border-slate-800 flex justify-end">
+        <div className="px-6 py-3.5 bg-[#161b22] border-t border-[#30363d] flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg text-xs transition-colors"
+            className="px-4 py-1.5 bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-[#f0f6fc] font-medium rounded-lg text-xs border border-[#30363d] transition-colors"
           >
             Done
           </button>

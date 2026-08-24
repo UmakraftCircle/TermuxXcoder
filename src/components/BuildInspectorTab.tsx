@@ -84,64 +84,64 @@ export const BuildInspectorTab: React.FC = () => {
   const getStatusIcon = (status: BuildDiagnostic['status']) => {
     switch (status) {
       case 'passed':
-        return <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />;
+        return <CheckCircle2 className="h-5 w-5 text-[#3fb950] shrink-0" />;
       case 'warning':
-        return <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />;
+        return <AlertTriangle className="h-5 w-5 text-[#d29922] shrink-0" />;
       case 'error':
-        return <XCircle className="h-5 w-5 text-rose-400 shrink-0" />;
+        return <XCircle className="h-5 w-5 text-[#f85149] shrink-0" />;
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Header & Status Gauge */}
+      {/* 3 Metric Bento Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+        <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-4 flex items-center justify-between shadow-sm hover:border-[#8b949e]/40 transition-colors">
           <div>
-            <p className="text-xs text-slate-400">Architecture Readiness</p>
-            <p className="text-xl font-bold text-emerald-400 mt-1">100% Ready</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">All 10 modules decoupled</p>
+            <p className="text-xs text-[#8b949e]">Architecture Readiness</p>
+            <p className="text-xl font-bold text-[#3fb950] mt-1">100% Ready</p>
+            <p className="text-[11px] text-[#8b949e] mt-0.5">All 10 modules decoupled</p>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-emerald-950/60 border border-emerald-700/50 flex items-center justify-center">
-            <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+          <div className="h-12 w-12 rounded-xl bg-[#238636]/15 border border-[#238636]/40 flex items-center justify-center">
+            <CheckCircle2 className="h-6 w-6 text-[#3fb950]" />
           </div>
         </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+        <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-4 flex items-center justify-between shadow-sm hover:border-[#8b949e]/40 transition-colors">
           <div>
-            <p className="text-xs text-slate-400">Android Target & SDK</p>
-            <p className="text-xl font-bold text-cyan-400 mt-1">API 29 → 34</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">Android 10 to Android 14+</p>
+            <p className="text-xs text-[#8b949e]">Android Target & SDK</p>
+            <p className="text-xl font-bold text-[#58a6ff] mt-1">API 29 → 34</p>
+            <p className="text-[11px] text-[#8b949e] mt-0.5">Android 10 to Android 14+</p>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-cyan-950/60 border border-cyan-700/50 flex items-center justify-center">
-            <Cpu className="h-6 w-6 text-cyan-400" />
+          <div className="h-12 w-12 rounded-xl bg-[#1f6feb]/15 border border-[#1f6feb]/40 flex items-center justify-center">
+            <Cpu className="h-6 w-6 text-[#58a6ff]" />
           </div>
         </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+        <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-4 flex items-center justify-between shadow-sm hover:border-[#8b949e]/40 transition-colors">
           <div>
-            <p className="text-xs text-slate-400">Build Diagnostics Status</p>
-            <p className="text-xl font-bold text-white mt-1">
-              <span className="text-emerald-400">{passedCount} Passed</span>
-              {warningCount > 0 && <span className="text-amber-400 text-sm ml-2">({warningCount} optional)</span>}
+            <p className="text-xs text-[#8b949e]">Build Diagnostics Status</p>
+            <p className="text-xl font-bold text-[#f0f6fc] mt-1">
+              <span className="text-[#3fb950]">{passedCount} Passed</span>
+              {warningCount > 0 && <span className="text-[#d29922] text-sm ml-2">({warningCount} optional)</span>}
             </p>
-            <p className="text-[11px] text-slate-500 mt-0.5">Zero blocking errors</p>
+            <p className="text-[11px] text-[#8b949e] mt-0.5">Zero blocking errors</p>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center">
-            <Shield className="h-6 w-6 text-indigo-400" />
+          <div className="h-12 w-12 rounded-xl bg-[#21262d] border border-[#30363d] flex items-center justify-center">
+            <Shield className="h-6 w-6 text-[#bc8cff]" />
           </div>
         </div>
       </div>
 
-      {/* Simulator Run Section */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+      {/* Simulator Run Bento Card */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Zap className="h-5 w-5 text-amber-400" />
+            <h3 className="text-base font-bold text-[#f0f6fc] flex items-center gap-2">
+              <Zap className="h-5 w-5 text-[#d29922]" />
               Simulate GitHub Actions Gradle Build
             </h3>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-[#8b949e] mt-1">
               Validates all task graphs, cross-module dependencies, and APK packaging outputs.
             </p>
           </div>
@@ -149,25 +149,25 @@ export const BuildInspectorTab: React.FC = () => {
           <button
             onClick={runBuildSimulation}
             disabled={isSimulating}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-950/40 transition-all disabled:opacity-50"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#238636] hover:bg-[#2ea043] border border-[#3fb950]/30 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-50"
           >
             <Play className={`h-4 w-4 fill-current ${isSimulating ? 'animate-spin' : ''}`} />
             <span>{isSimulating ? 'Building APK...' : 'Run Build Simulation'}</span>
           </button>
         </div>
 
-        {/* Live Build Logs Console */}
+        {/* Live Build Logs Console in Bento Well */}
         {buildLogs.length > 0 && (
-          <div className="mt-4 bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs text-slate-300 max-h-64 overflow-y-auto space-y-1">
+          <div className="mt-4 bg-[#0d1117] rounded-xl p-4 border border-[#30363d] font-mono text-xs text-[#c9d1d9] max-h-64 overflow-y-auto space-y-1">
             {buildLogs.map((log, idx) => (
               <div
                 key={idx}
                 className={
                   log.includes('SUCCESSFUL')
-                    ? 'text-emerald-400 font-bold'
+                    ? 'text-[#3fb950] font-bold'
                     : log.includes('Packaging')
-                    ? 'text-cyan-300 font-semibold'
-                    : 'text-slate-300'
+                    ? 'text-[#58a6ff] font-semibold'
+                    : 'text-[#c9d1d9]'
                 }
               >
                 {log}
@@ -177,10 +177,10 @@ export const BuildInspectorTab: React.FC = () => {
         )}
       </div>
 
-      {/* Detailed Diagnostic Cards List */}
+      {/* Detailed Diagnostic Cards Bento Grid */}
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-          <FileCheck className="h-4 w-4 text-cyan-400" />
+        <h3 className="text-sm font-semibold text-[#f0f6fc] flex items-center gap-2">
+          <FileCheck className="h-4 w-4 text-[#58a6ff]" />
           Pre-flight Build Verification Checks ({diagnostics.length})
         </h3>
 
@@ -188,20 +188,20 @@ export const BuildInspectorTab: React.FC = () => {
           {diagnostics.map((diag) => (
             <div
               key={diag.id}
-              className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-start gap-3 hover:border-slate-700 transition-colors"
+              className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 flex items-start gap-3 hover:border-[#8b949e]/50 transition-colors"
             >
               {getStatusIcon(diag.status)}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-white truncate">{diag.name}</h4>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">
+                  <h4 className="text-xs font-bold text-[#f0f6fc] truncate">{diag.name}</h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-[#21262d] text-[#8b949e] font-mono border border-[#30363d]">
                     {diag.category}
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 mt-1">{diag.message}</p>
-                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{diag.detail}</p>
+                <p className="text-xs text-[#c9d1d9] mt-1">{diag.message}</p>
+                <p className="text-[11px] text-[#8b949e] mt-1 leading-relaxed">{diag.detail}</p>
                 {diag.recommendedFix && (
-                  <p className="text-[11px] text-amber-400/90 mt-1.5 font-mono">
+                  <p className="text-[11px] text-[#d29922] mt-2 font-mono bg-[#0d1117] p-2 rounded-lg border border-[#30363d]">
                     💡 {diag.recommendedFix}
                   </p>
                 )}

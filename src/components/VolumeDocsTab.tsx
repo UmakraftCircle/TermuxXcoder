@@ -28,69 +28,71 @@ export const VolumeDocsTab: React.FC<VolumeDocsTabProps> = ({ files, onSelectFil
   const getModuleIcon = (vol: number) => {
     switch (vol) {
       case 1:
-        return <Layers className="h-4 w-4 text-cyan-400" />;
+        return <Layers className="h-4 w-4 text-[#58a6ff]" />;
       case 2:
-        return <Code className="h-4 w-4 text-violet-400" />;
+        return <Code className="h-4 w-4 text-[#bc8cff]" />;
       case 3:
-        return <Terminal className="h-4 w-4 text-emerald-400" />;
+        return <Terminal className="h-4 w-4 text-[#3fb950]" />;
       case 4:
-        return <BookOpen className="h-4 w-4 text-blue-400" />;
+        return <BookOpen className="h-4 w-4 text-[#58a6ff]" />;
       case 5:
-        return <Workflow className="h-4 w-4 text-amber-400" />;
+        return <Workflow className="h-4 w-4 text-[#d29922]" />;
       case 6:
-        return <Cpu className="h-4 w-4 text-pink-400" />;
+        return <Cpu className="h-4 w-4 text-[#f778ba]" />;
       case 7:
       case 8:
-        return <Sparkles className="h-4 w-4 text-purple-400" />;
+        return <Sparkles className="h-4 w-4 text-[#bc8cff]" />;
       case 9:
       case 10:
-        return <Shield className="h-4 w-4 text-indigo-400" />;
+        return <Shield className="h-4 w-4 text-[#58a6ff]" />;
       default:
-        return <BookOpen className="h-4 w-4 text-slate-400" />;
+        return <BookOpen className="h-4 w-4 text-[#8b949e]" />;
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
-        <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-          <BookOpen className="h-5 w-5 text-cyan-400" />
+      {/* Header Bento Card */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 shadow-sm">
+        <h2 className="text-base sm:text-lg font-bold text-[#f0f6fc] flex items-center gap-2">
+          <BookOpen className="h-5 w-5 text-[#58a6ff]" />
           TermuxXCoder Engineering Specification (10 Volumes)
         </h2>
-        <p className="text-xs text-slate-400 mt-1">
+        <p className="text-xs text-[#8b949e] mt-1">
           Complete production blueprint covering Android architecture, Sora Editor, Termux PTY, JGit, LSP, DAP, AI Engine, and CI/CD.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: 10 Volumes Index */}
-        <div className="lg:col-span-5 space-y-2">
+        {/* Left Column: 10 Volumes Index Bento Cards with Icon + Name */}
+        <div className="lg:col-span-5 space-y-1.5">
           {ENGINEERING_VOLUMES.map((vol) => {
             const isSelected = vol.volume === selectedVolumeNum;
             return (
               <button
                 key={vol.volume}
                 onClick={() => setSelectedVolumeNum(vol.volume)}
-                className={`w-full text-left p-3.5 rounded-xl border text-xs transition-all flex items-start justify-between gap-3 group ${
+                className={`w-full text-left px-3.5 py-3 rounded-xl border text-xs transition-all flex items-center justify-between gap-3 min-h-[44px] group ${
                   isSelected
-                    ? 'bg-slate-800/90 border-cyan-500/50 shadow-md text-white'
-                    : 'bg-slate-900/50 border-slate-800/80 hover:bg-slate-800/40 text-slate-400'
+                    ? 'bg-[#21262d] border-[#58a6ff] shadow-md shadow-[#1f6feb]/15 text-[#f0f6fc] font-bold'
+                    : 'bg-[#161b22] border-[#30363d] hover:bg-[#21262d]/70 text-[#c9d1d9]'
                 }`}
               >
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className="mt-0.5">{getModuleIcon(vol.volume)}</div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-white text-xs">Vol {vol.volume}:</span>
-                      <span className="font-semibold text-slate-200 truncate">{vol.title}</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5 truncate">{vol.subtitle}</p>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`p-1.5 rounded-lg shrink-0 ${
+                      isSelected ? 'bg-[#1f6feb] text-white' : 'bg-[#0d1117]'
+                    }`}
+                  >
+                    {getModuleIcon(vol.volume)}
                   </div>
+                  <span className="font-semibold truncate text-xs">
+                    Vol {vol.volume}: {vol.title}
+                  </span>
                 </div>
                 <ChevronRight
-                  className={`h-4 w-4 shrink-0 mt-1 transition-transform ${
-                    isSelected ? 'text-cyan-400 translate-x-0.5' : 'text-slate-600 group-hover:text-slate-400'
+                  className={`h-4 w-4 shrink-0 transition-transform ${
+                    isSelected ? 'text-[#58a6ff] translate-x-0.5' : 'text-[#8b949e] group-hover:text-[#c9d1d9]'
                   }`}
                 />
               </button>
@@ -98,50 +100,50 @@ export const VolumeDocsTab: React.FC<VolumeDocsTabProps> = ({ files, onSelectFil
           })}
         </div>
 
-        {/* Right Column: Volume Detail & Chapters */}
-        <div className="lg:col-span-7 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-5">
-          <div className="border-b border-slate-800 pb-4">
+        {/* Right Column: Volume Detail & Chapters Bento Card */}
+        <div className="lg:col-span-7 bg-[#161b22] border border-[#30363d] rounded-2xl p-6 space-y-5 shadow-sm">
+          <div className="border-b border-[#30363d] pb-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-cyan-400 font-bold">
+              <span className="text-xs font-mono text-[#58a6ff] font-bold">
                 VOLUME {selectedVolume.volume} OF 10
               </span>
               <div className="flex items-center gap-1.5">
                 {selectedVolume.keyModules.map((mod) => (
                   <span
                     key={mod}
-                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/60"
+                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#1f6feb]/15 text-[#58a6ff] border border-[#1f6feb]/40"
                   >
                     {mod}
                   </span>
                 ))}
               </div>
             </div>
-            <h3 className="text-xl font-bold text-white mt-1">{selectedVolume.title}</h3>
-            <p className="text-xs text-slate-400 mt-0.5 font-medium">{selectedVolume.subtitle}</p>
-            <p className="text-xs text-slate-300 mt-3 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <h3 className="text-xl font-bold text-[#f0f6fc] mt-1">{selectedVolume.title}</h3>
+            <p className="text-xs text-[#8b949e] mt-0.5 font-medium">{selectedVolume.subtitle}</p>
+            <p className="text-xs text-[#c9d1d9] mt-3 leading-relaxed bg-[#0d1117] p-3 rounded-xl border border-[#30363d]">
               {selectedVolume.summary}
             </p>
           </div>
 
           <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[#8b949e] mb-3">
               Engineering Chapters & Implementation Requirements
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {selectedVolume.chapters.map((ch, idx) => (
                 <div
                   key={idx}
-                  className="bg-slate-950/80 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-between"
+                  className="bg-[#0d1117] p-3 rounded-xl border border-[#30363d] flex flex-col justify-between hover:border-[#8b949e]/50 transition-colors"
                 >
-                  <span className="text-[11px] font-mono font-bold text-cyan-400">{ch.title}</span>
-                  <p className="text-xs text-slate-300 mt-1 leading-snug">{ch.desc}</p>
+                  <span className="text-[11px] font-mono font-bold text-[#58a6ff]">{ch.title}</span>
+                  <p className="text-xs text-[#c9d1d9] mt-1 leading-snug">{ch.desc}</p>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="pt-2 flex items-center justify-between">
-            <span className="text-xs text-slate-500">Implemented in root project tree</span>
+            <span className="text-xs text-[#8b949e]">Implemented in root project tree</span>
             <button
               onClick={() => {
                 const relatedFile = files.find((f) =>
@@ -149,7 +151,7 @@ export const VolumeDocsTab: React.FC<VolumeDocsTabProps> = ({ files, onSelectFil
                 );
                 if (relatedFile) onSelectFile(relatedFile);
               }}
-              className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5"
+              className="text-xs font-semibold text-[#58a6ff] hover:text-[#79c0ff] flex items-center gap-1.5"
             >
               <span>View Related Source Code</span>
               <ExternalLink className="h-3.5 w-3.5" />

@@ -6,6 +6,10 @@ export interface ProjectFile {
   content: string;
   description?: string;
   language: 'kotlin' | 'yaml' | 'groovy' | 'properties' | 'xml' | 'json' | 'markdown' | 'bash';
+  isEncrypted?: boolean;
+  isReadOnly?: boolean;
+  checksum?: string;
+  storageScope?: 'app_internal_vault' | 'workspace_user';
 }
 
 export interface BuildDiagnostic {
