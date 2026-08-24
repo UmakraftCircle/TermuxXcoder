@@ -1,0 +1,6 @@
+{
+  "name": "TermuxXCoder - GitHub APK Build Studio",
+  "description": "Comprehensive GitHub preparation, CI/CD pipeline generator, and multi-module Android project export tool for building TermuxXCoder APKs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
