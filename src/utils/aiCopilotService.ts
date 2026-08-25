@@ -1,5 +1,7 @@
 import { AiCopilotConfig, AiProviderType, AiModelOption } from '../types';
 
+export type { AiProviderType };
+
 export const AI_STORAGE_KEY = 'umakraft_ai_copilot_config_v2';
 
 export interface ProviderMeta {
