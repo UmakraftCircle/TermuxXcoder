@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Workflow,
   FolderTree,
@@ -32,7 +32,6 @@ import { UmakraftSplashScreen } from './components/UmakraftSplashScreen';
 import { UmakraftAiCoder } from './components/UmakraftAiCoder';
 import { FunctionsDirectoryTab } from './components/FunctionsDirectoryTab';
 import { WorkflowsTab } from './components/WorkflowsTab';
-import { CodebaseExplorerTab } from './components/CodebaseExplorerTab';
 import { BuildInspectorTab } from './components/BuildInspectorTab';
 import { KeystoreWizardTab } from './components/KeystoreWizardTab';
 import { VolumeDocsTab } from './components/VolumeDocsTab';
@@ -42,8 +41,15 @@ import { TerminalPageTab } from './components/TerminalPageTab';
 import { StoragePageTab } from './components/StoragePageTab';
 import { SlideTerminalDrawer } from './components/SlideTerminalDrawer';
 import { QuickPushModal } from './components/QuickPushModal';
+import { AndroidPermissionsModal } from './components/AndroidPermissionsModal';
+import { Camera, Shield } from 'lucide-react';
 
 import { exportProjectToZip, downloadBlob } from './utils/zipExporter';
+import {
+  loadSavedSandboxFiles,
+  saveSandboxFiles,
+  SAMPLE_SANDBOX_DEMO_FILES
+} from './utils/sandboxFileManager';
 
 export type AppFunctionTab =
   | 'coder'
@@ -59,26 +65,75 @@ export type AppFunctionTab =
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [files, setFiles] = useState<ProjectFile[]>(INITIAL_PROJECT_FILES);
+  
+  // App System Files (Protected internal architecture, workflows, modules)
+  const [appFiles, setAppFiles] = useState<ProjectFile[]>(INITIAL_PROJECT_FILES);
+  
+  // Sandbox Files (Purely user-uploaded, imported, or user-created files - isolated from App files)
+  const [sandboxFiles, setSandboxFiles] = useState<ProjectFile[]>(() => loadSavedSandboxFiles());
+  
   const [activeTab, setActiveTab] = useState<AppFunctionTab>('coder');
-  const [activeFilePath, setActiveFilePath] = useState<string>(INITIAL_PROJECT_FILES[0]?.path || '');
+  const [activeSandboxFilePath, setActiveSandboxFilePath] = useState<string>('');
   const [isQuickPushOpen, setIsQuickPushOpen] = useState(false);
   const [isSlideDrawerOpen, setIsSlideDrawerOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+
+  // Sync sandbox files with localStorage
+  useEffect(() => {
+    saveSandboxFiles(sandboxFiles);
+  }, [sandboxFiles]);
 
   const handleSelectFileToView = (file: ProjectFile) => {
-    setActiveFilePath(file.path);
-    setActiveTab('coder');
+    if (file.isSandbox || file.storageScope === 'sandbox_user') {
+      setActiveSandboxFilePath(file.path);
+      setActiveTab('coder');
+    } else {
+      // If it's an app file, navigate to Storage page where all app files are shown
+      setActiveTab('storage');
+    }
   };
 
-  const handleUpdateFileContent = (path: string, newContent: string) => {
-    setFiles((prev) =>
+  const handleUpdateSandboxContent = (path: string, newContent: string) => {
+    setSandboxFiles((prev) =>
       prev.map((f) => (f.path === path ? { ...f, content: newContent } : f))
     );
   };
 
-  const handleAddFile = (newFile: ProjectFile) => {
-    setFiles((prev) => {
+  const handleAddSandboxFile = (newFile: ProjectFile) => {
+    setSandboxFiles((prev) => {
+      const filtered = prev.filter((f) => f.path !== newFile.path);
+      return [newFile, ...filtered];
+    });
+    setActiveSandboxFilePath(newFile.path);
+  };
+
+  const handleAddMultipleSandboxFiles = (newFiles: ProjectFile[]) => {
+    setSandboxFiles((prev) => {
+      const newPaths = new Set(newFiles.map((f) => f.path));
+      const existing = prev.filter((f) => !newPaths.has(f.path));
+      return [...newFiles, ...existing];
+    });
+    if (newFiles.length > 0) {
+      setActiveSandboxFilePath(newFiles[0].path);
+    }
+  };
+
+  const handleDeleteSandboxFile = (path: string) => {
+    setSandboxFiles((prev) => prev.filter((f) => f.path !== path));
+  };
+
+  const handleClearSandbox = () => {
+    setSandboxFiles([]);
+    setActiveSandboxFilePath('');
+  };
+
+  const handleLoadSampleSandbox = () => {
+    handleAddMultipleSandboxFiles(SAMPLE_SANDBOX_DEMO_FILES);
+  };
+
+  const handleAddAppFile = (newFile: ProjectFile) => {
+    setAppFiles((prev) => {
       const existing = prev.findIndex((f) => f.path === newFile.path);
       if (existing >= 0) {
         const copy = [...prev];
@@ -91,25 +146,23 @@ export default function App() {
 
   const handleExportZip = async () => {
     try {
-      const blob = await exportProjectToZip(files, 'Umakraft-TermuxXCoder-main');
-      downloadBlob(blob, 'Umakraft-TermuxXCoder-Project.zip');
+      const filesToExport = sandboxFiles.length > 0 ? sandboxFiles : appFiles;
+      const archiveName = sandboxFiles.length > 0 ? 'Umakraft-Sandbox-Project' : 'Umakraft-TermuxXCoder-main';
+      const blob = await exportProjectToZip(filesToExport, archiveName);
+      downloadBlob(blob, `${archiveName}.zip`);
     } catch (e) {
       console.error(e);
     }
   };
-
-  const nonAppFilesCount = files.filter(
-    (f) => f.module !== 'app' && !f.path.startsWith('app/')
-  ).length;
 
   const pageMeta: Record<
     AppFunctionTab,
     { title: string; subtitle: string; badge: string; icon: any; category: string }
   > = {
     coder: {
-      title: 'Umakraft AI Coder & Sandbox',
-      subtitle: 'Full-screen mobile coder and Gemini AI Copilot for Android modular development',
-      badge: 'Main Page',
+      title: 'Umakraft Sandbox & AI Copilot',
+      subtitle: 'Isolated Sandbox environment for user uploads, ZIP imports & multi-provider AI copilot',
+      badge: 'Sandbox',
       icon: Code2,
       category: 'Primary Workspace'
     },
@@ -122,8 +175,8 @@ export default function App() {
     },
     storage: {
       title: 'Storage & Isolated File Vault',
-      subtitle: 'Inaccessible internal app storage (APKs, Keystore, build cache) & workspace files',
-      badge: 'Protected Vault',
+      subtitle: 'Encrypted internal app storage (All App Files, Keystore, build cache) & sandbox items',
+      badge: 'App Files',
       icon: HardDrive,
       category: 'Primary Workspace'
     },
@@ -171,15 +224,12 @@ export default function App() {
     },
     ai: {
       title: 'AI Code & Workflow Customizer',
-      subtitle: 'Gemini-assisted intelligent modification of multi-module code and Gradle scripts',
-      badge: 'Gemini',
+      subtitle: 'Multi-model copilot options (Qwen 1.5 Local, Groq, OpenAI, Gemini, OpenRouter, OpenCode)',
+      badge: 'AI Copilot',
       icon: Sparkles,
       category: 'Security, AI & Docs'
     }
   };
-
-  const currentMeta = pageMeta[activeTab] || pageMeta.coder;
-  const CurrentIcon = currentMeta.icon;
 
   return (
     <div className="h-[100dvh] h-screen w-full bg-[#0d1117] text-[#c9d1d9] flex flex-col font-sans selection:bg-[#1f6feb] selection:text-white overflow-hidden">
@@ -188,35 +238,43 @@ export default function App() {
         <UmakraftSplashScreen onComplete={() => setShowSplash(false)} />
       )}
 
-      {/* Top Header (Visible on sub-pages; on main Coder page, the Coder's top action bar with the gear icon takes over for maximum screen space) */}
+      {/* Top Header */}
       {activeTab !== 'coder' && (
         <Header
-          files={files}
+          files={sandboxFiles.length > 0 ? sandboxFiles : appFiles}
           activeTab={activeTab}
           onOpenQuickPush={() => setIsQuickPushOpen(true)}
           onToggleSlideDrawer={() => setIsSlideDrawerOpen((prev) => !prev)}
           onGoToCoder={() => setActiveTab('coder')}
+          onOpenPermissions={() => setIsPermissionsModalOpen(true)}
           isSlideDrawerOpen={isSlideDrawerOpen}
         />
       )}
 
-      {/* Top-Left Sliding Master Functions Drawer (Hidden under Gear Icon) */}
+      {/* Top-Left Sliding Master Functions Drawer */}
       <SlideTerminalDrawer
         isOpen={isSlideDrawerOpen}
         onClose={() => setIsSlideDrawerOpen(false)}
-        files={files}
+        files={appFiles}
         activeTab={activeTab}
         onSelectTab={(tabId) => setActiveTab(tabId as AppFunctionTab)}
         onOpenQuickPush={() => setIsQuickPushOpen(true)}
       />
 
-      {/* Main Container: Fixed Height on Mobile (h-[100dvh] / h-screen), Zero Outer Scroll */}
+      {/* Main Container */}
       <main className="flex-1 min-h-0 w-full overflow-hidden p-1.5 sm:p-2.5 flex flex-col">
         {activeTab === 'coder' && (
           <UmakraftAiCoder
-            files={files}
-            activeFilePath={activeFilePath}
-            onUpdateFileContent={handleUpdateFileContent}
+            files={sandboxFiles}
+            appFiles={appFiles}
+            activeFilePath={activeSandboxFilePath}
+            onUpdateFileContent={handleUpdateSandboxContent}
+            onAddSandboxFile={handleAddSandboxFile}
+            onAddMultipleSandboxFiles={handleAddMultipleSandboxFiles}
+            onDeleteSandboxFile={handleDeleteSandboxFile}
+            onClearSandbox={handleClearSandbox}
+            onLoadSampleSandbox={handleLoadSampleSandbox}
+            onGoToStorage={() => setActiveTab('storage')}
             onOpenSettings={() => setIsSlideDrawerOpen(true)}
             isAiModalOpen={isAiModalOpen}
             onCloseAiModal={() => setIsAiModalOpen(false)}
@@ -225,13 +283,14 @@ export default function App() {
         )}
         {activeTab === 'terminal' && (
           <div className="h-full overflow-y-auto">
-            <TerminalPageTab files={files} onOpenQuickPush={() => setIsQuickPushOpen(true)} />
+            <TerminalPageTab files={appFiles} onOpenQuickPush={() => setIsQuickPushOpen(true)} />
           </div>
         )}
         {activeTab === 'storage' && (
           <div className="h-full overflow-y-auto">
             <StoragePageTab
-              files={files}
+              files={appFiles}
+              sandboxFiles={sandboxFiles}
               onSelectFile={(f) => {
                 handleSelectFileToView(f);
               }}
@@ -242,7 +301,7 @@ export default function App() {
         {activeTab === 'functions' && (
           <div className="h-full overflow-y-auto">
             <FunctionsDirectoryTab
-              files={files}
+              files={appFiles}
               onSelectFunction={(fnId) => setActiveTab(fnId as AppFunctionTab)}
               onOpenQuickPush={() => setIsQuickPushOpen(true)}
               onExportZip={handleExportZip}
@@ -251,12 +310,12 @@ export default function App() {
         )}
         {activeTab === 'workflows' && (
           <div className="h-full overflow-y-auto">
-            <WorkflowsTab files={files} onSelectFile={handleSelectFileToView} />
+            <WorkflowsTab files={appFiles} onSelectFile={handleSelectFileToView} />
           </div>
         )}
         {activeTab === 'releasenotes' && (
           <div className="h-full overflow-y-auto">
-            <ReleaseNotesTab files={files} onSaveFile={handleAddFile} />
+            <ReleaseNotesTab files={appFiles} onSaveFile={handleAddAppFile} />
           </div>
         )}
         {activeTab === 'diagnostics' && (
@@ -271,27 +330,27 @@ export default function App() {
         )}
         {activeTab === 'docs' && (
           <div className="h-full overflow-y-auto">
-            <VolumeDocsTab files={files} onSelectFile={handleSelectFileToView} />
+            <VolumeDocsTab files={appFiles} onSelectFile={handleSelectFileToView} />
           </div>
         )}
         {activeTab === 'ai' && (
           <div className="h-full overflow-y-auto">
-            <AiCustomizerTab files={files} onAddFile={handleAddFile} />
+            <AiCustomizerTab files={appFiles} onAddFile={handleAddAppFile} />
           </div>
         )}
       </main>
 
-      {/* Ultra-Modern Floating Dock Navigation (Icon-First) */}
+      {/* Ultra-Modern Floating Dock Navigation */}
       <nav className="h-14 sm:h-16 flex-shrink-0 z-30 bg-[#161b22]/90 backdrop-blur-xl border-t border-[#30363d] px-3 sm:px-6 flex items-center justify-around shadow-2xl">
         <div className="flex items-center justify-around w-full max-w-md mx-auto">
-          {/* Coder Icon Button */}
+          {/* Coder Icon Button (Sandbox) */}
           <button
             id="btn-nav-coder"
             onClick={() => {
               setActiveTab('coder');
               setIsAiModalOpen(false);
             }}
-            title="Sandbox AI Coder (Main Page)"
+            title="Sandbox AI Coder (Upload & Import)"
             aria-label="AI Coder"
             className={`relative flex flex-col items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl transition-all active:scale-95 group ${
               activeTab === 'coder' && !isAiModalOpen
@@ -326,15 +385,15 @@ export default function App() {
             )}
           </button>
 
-          {/* Workspace Files Directory Tree Icon Button */}
+          {/* Storage & All App Files Directory Tree Icon Button */}
           <button
             id="btn-nav-storage"
             onClick={() => {
               setActiveTab('storage');
               setIsAiModalOpen(false);
             }}
-            title="Workspace Files Directory Tree"
-            aria-label="Workspace Files"
+            title="App Storage Vault & System Files"
+            aria-label="App Storage"
             className={`relative flex flex-col items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl transition-all active:scale-95 group ${
               activeTab === 'storage'
                 ? 'text-white bg-gradient-to-b from-[#1f6feb] to-[#1158c7] shadow-lg shadow-[#1f6feb]/35 border border-[#388bfd]/50'
@@ -354,7 +413,7 @@ export default function App() {
               setActiveTab('coder');
               setIsAiModalOpen((prev) => !prev);
             }}
-            title="Gemini AI Copilot"
+            title="AI Copilot Assistant"
             aria-label="AI Copilot"
             className={`relative flex flex-col items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl transition-all active:scale-95 group ${
               isAiModalOpen
@@ -385,10 +444,18 @@ export default function App() {
       <QuickPushModal
         isOpen={isQuickPushOpen}
         onClose={() => setIsQuickPushOpen(false)}
-        files={files}
+        files={appFiles}
+      />
+
+      {/* Android Permissions & Camera Vision Explainer Modal */}
+      <AndroidPermissionsModal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => setIsPermissionsModalOpen(false)}
+        onOpenScanner={() => {
+          setActiveTab('coder');
+          setIsAiModalOpen(true);
+        }}
       />
     </div>
   );
 }
-
-

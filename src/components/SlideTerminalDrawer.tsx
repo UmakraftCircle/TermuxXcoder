@@ -110,12 +110,12 @@ export const SlideTerminalDrawer: React.FC<SlideTerminalDrawerProps> = ({
     },
     {
       id: 'ai',
-      name: 'AI Customizer',
-      subtitle: 'Gemini Copilot Tuning',
+      name: 'AI Copilot Hub',
+      subtitle: 'Qwen 1.5 Local & Multi-API',
       icon: Sparkles,
       gradient: 'from-fuchsia-600 to-pink-600',
       iconColor: 'text-fuchsia-200',
-      badge: 'AI'
+      badge: 'Qwen/API'
     },
     {
       id: 'docs',

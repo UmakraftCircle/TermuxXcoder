@@ -1,6 +1,6 @@
 {
   "name": "TermuxXCoder - GitHub APK Build Studio",
-  "description": "Umakraft APK Build Studio: Comprehensive GitHub preparation, CI/CD pipeline generator, sliding PTY terminal, and multi-module Android project export tool.",
-  "requestFramePermissions": [],
+  "description": "Umakraft APK Build Studio: Comprehensive GitHub preparation, CI/CD pipeline generator, sliding PTY terminal, vision-powered code scanner, and multi-module Android project export tool.",
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

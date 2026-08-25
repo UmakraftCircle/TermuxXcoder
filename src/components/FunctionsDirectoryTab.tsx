@@ -128,7 +128,7 @@ export const FunctionsDirectoryTab: React.FC<FunctionsDirectoryTabProps> = ({
       title: 'Gemini AI Code Copilot & Refactorer',
       icon: Sparkles,
       category: 'AI & Intelligence',
-      badge: 'Gemini 2.5 Flash',
+      badge: 'Gemini 3.7 Flash',
       description: 'Generates real-time code patches, explains logic, and fixes bugs for all 10 Android modules.',
       actionLabel: 'Launch AI Copilot',
       onRun: () => onSelectFunction('coder')
@@ -238,11 +238,11 @@ export const FunctionsDirectoryTab: React.FC<FunctionsDirectoryTabProps> = ({
   // 2. Functions that live on the Backend
   const backendFunctions = [
     {
-      name: 'Gemini AI Inference Gateway',
+      name: 'Gemini 3.7 Flash AI Inference Gateway',
       method: 'POST',
       endpoint: '/api/ai-assist',
       icon: Bot,
-      description: 'Secure server-side proxy communicating with @google/genai (Gemini 2.5 Flash). Protects API keys and provides offline template fallbacks.',
+      description: 'Secure server-side proxy communicating with @google/genai (Gemini 3.7 Flash). Protects API keys and provides offline template fallbacks.',
       payload: {
         prompt: 'Optimize openpty buffer handling for Android 14',
         currentFile: 'terminal/src/main/cpp/pty_bridge.cpp',
@@ -269,6 +269,39 @@ export const FunctionsDirectoryTab: React.FC<FunctionsDirectoryTabProps> = ({
       description: 'Executes and parses shell commands (e.g., ./gradlew assembleRelease, git status, pty-status) through virtual execution pipelines.',
       payload: {
         command: './gradlew assembleRelease'
+      }
+    },
+    {
+      name: 'Pre-Flight Build & Module Inspector',
+      method: 'POST',
+      endpoint: '/api/verify-build',
+      icon: CheckCircle2,
+      description: 'Performs static verification across all 10 modules, AGP 8.4, Java 21, and Android 10-14 SDK compliance.',
+      payload: {
+        modules: ['app', 'common', 'editor', 'terminal', 'filesystem', 'git', 'lsp', 'debugger', 'ai', 'workspace']
+      }
+    },
+    {
+      name: 'GitHub Remote Push Automation Service',
+      method: 'POST',
+      endpoint: '/api/git-push',
+      icon: Github,
+      description: 'Simulates and tests Git remote push pipelines, branch verification, and GitHub Actions CI triggers.',
+      payload: {
+        repoUrl: 'https://github.com/pagaranjayson021/Umakraft-TermuxXCoder.git',
+        branch: 'main',
+        commitMessage: 'feat: initial release'
+      }
+    },
+    {
+      name: 'Release Notes & SHA-256 Engine',
+      method: 'POST',
+      endpoint: '/api/generate-release-notes',
+      icon: FileText,
+      description: 'Parses Git commit logs and computes SHA-256 integrity checksums for release distributions.',
+      payload: {
+        version: 'v1.0.0-rc1',
+        rawCommits: 'feat(editor): add Sora Editor 0.23.5\nfix(pty): resolve forkpty memory leak'
       }
     },
     {

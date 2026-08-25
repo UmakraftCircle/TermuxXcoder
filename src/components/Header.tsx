@@ -4,7 +4,9 @@ import {
   Download,
   Settings,
   Code2,
-  Sparkles
+  Sparkles,
+  ShieldCheck,
+  Camera
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { exportProjectToZip, downloadBlob } from '../utils/zipExporter';
@@ -16,6 +18,7 @@ interface HeaderProps {
   onOpenQuickPush: () => void;
   onToggleSlideDrawer: () => void;
   onGoToCoder?: () => void;
+  onOpenPermissions?: () => void;
   isSlideDrawerOpen?: boolean;
 }
 
@@ -25,6 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenQuickPush,
   onToggleSlideDrawer,
   onGoToCoder,
+  onOpenPermissions,
   isSlideDrawerOpen
 }) => {
   const [isExporting, setIsExporting] = useState(false);
@@ -100,6 +104,19 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Section: Action Controls */}
         <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Permissions & Scopes Explainer Button */}
+          {onOpenPermissions && (
+            <button
+              id="btn-permissions-info"
+              onClick={onOpenPermissions}
+              title="Storage & Camera Permissions Info"
+              aria-label="App Permissions"
+              className="flex items-center justify-center h-10 w-10 min-h-[44px] min-w-[44px] rounded-xl bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[#3fb950] hover:text-[#7ee787] transition-all active:scale-95"
+            >
+              <ShieldCheck className="h-5 w-5" />
+            </button>
+          )}
+
           {/* Quick Push Guide Icon Button */}
           <button
             id="btn-quick-push"

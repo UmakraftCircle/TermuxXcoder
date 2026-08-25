@@ -86,7 +86,7 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = () => {
     return now.toTimeString().split(' ')[0];
   };
 
-  const handleRunCommand = (cmd: string) => {
+  const handleRunCommand = async (cmd: string) => {
     const trimmed = cmd.trim();
     if (!trimmed) return;
 
@@ -120,118 +120,102 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = () => {
       return;
     }
 
-    if (lower.startsWith('git status') || lower === 'status' || lower === 'git') {
-      setTimeout(() => {
-        setLogs((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(36).substring(7),
-            type: 'info',
-            text: `On branch ${targetBranch} (up to date with 'origin/${targetBranch}')
-Changes staged:
-  modified: .github/workflows/android.yml
-  modified: .github/workflows/release.yml
-  modified: src/main/editor/SoraEditorCore.kt
-  modified: src/main/pty/native-pty.cpp`,
-            timestamp: getTimeString()
-          }
-        ]);
-      }, 120);
-      return;
-    }
+    try {
+      const res = await fetch('/api/pty-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: trimmed })
+      });
 
-    if (lower.includes('gradlew') || lower.includes('build') || lower.includes('assemble')) {
-      setTimeout(() => {
-        setLogs((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(36).substring(7),
-            type: 'info',
-            text: `> Task :core:terminal:externalNativeBuildRelease (arm64-v8a libtermux-pty.so)
-> Task :app:packageRelease
-> Task :app:assembleRelease SUCCESS
+      const data = await res.json();
+      const outputText = data.output || `Executed: ${trimmed}`;
 
-BUILD SUCCESSFUL in 3.42s
-Artifact: internal_vault/data/data/com.umakraft.coder/build_outputs/app-release-unsigned.apk`,
-            timestamp: getTimeString()
-          },
-          {
-            id: Math.random().toString(36).substring(7),
-            type: 'success',
-            text: '✓ APK build completed successfully.',
-            timestamp: getTimeString()
-          }
-        ]);
-      }, 150);
-      return;
-    }
-
-    if (lower.includes('pkg') || lower.includes('packages')) {
-      setTimeout(() => {
-        setLogs((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(36).substring(7),
-            type: 'info',
-            text: `Installed packages:
-- git 2.44.0 (aarch64)
-- openjdk-17 (17.0.10)
-- clang 17.0.6 (NDK r26b)
-- sora-editor 0.23.5
-- termux-tools 1.39`,
-            timestamp: getTimeString()
-          }
-        ]);
-      }, 120);
-      return;
-    }
-
-    // Default output
-    setTimeout(() => {
       setLogs((prev) => [
         ...prev,
         {
           id: Math.random().toString(36).substring(7),
-          type: 'output',
-          text: `Executed: ${trimmed} (Exit code: 0)`,
+          type: outputText.includes('BUILD SUCCESSFUL') || outputText.includes('✓') ? 'success' : 'info',
+          text: outputText,
           timestamp: getTimeString()
         }
       ]);
-    }, 100);
+    } catch (err: any) {
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).substring(7),
+          type: 'error',
+          text: `[PTY Error]: ${err.message || 'Failed to connect to backend PTY bridge'}`,
+          timestamp: getTimeString()
+        }
+      ]);
+    }
   };
 
-  const handleSimulateGitPush = () => {
+  const handleSimulateGitPush = async () => {
     setIsPushing(true);
     setPushStatus('pushing');
 
-    const pushLogs = [
-      `[git] Authenticating with remote ${repoUrl}...`,
-      `[git] Compressing objects: 100% (98/98), done.`,
-      `[git] Writing objects: 100% (142/142), 1.24 MiB | 4.80 MiB/s, done.`,
-      `remote: Triggering GitHub Actions CI/CD workflows: [android.yml, release.yml]`,
-      `To ${repoUrl}`,
-      ` * [new branch]      ${targetBranch} -> ${targetBranch}`
-    ];
+    setLogs((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substring(7),
+        type: 'info',
+        text: `[git] Connecting to remote ${repoUrl}...`,
+        timestamp: getTimeString()
+      }
+    ]);
 
-    pushLogs.forEach((line, index) => {
-      setTimeout(() => {
-        setLogs((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(36).substring(7),
-            type: index === pushLogs.length - 1 ? 'success' : 'info',
-            text: line,
-            timestamp: getTimeString()
+    try {
+      const res = await fetch('/api/git-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl,
+          branch: targetBranch,
+          commitMessage,
+          token: githubToken
+        })
+      });
+
+      const data = await res.json();
+      const steps: string[] = data.steps || [
+        `[git] Remote push completed to ${repoUrl}`,
+        `✓ [${targetBranch}] 10 modules synced`
+      ];
+
+      steps.forEach((line: string, index: number) => {
+        setTimeout(() => {
+          setLogs((prev) => [
+            ...prev,
+            {
+              id: Math.random().toString(36).substring(7),
+              type: index === steps.length - 1 ? 'success' : 'info',
+              text: line,
+              timestamp: getTimeString()
+            }
+          ]);
+
+          if (index === steps.length - 1) {
+            setIsPushing(false);
+            setPushStatus('success');
+            confetti({ particleCount: 60, spread: 55, origin: { y: 0.3 } });
           }
-        ]);
-
-        if (index === pushLogs.length - 1) {
-          setIsPushing(false);
-          setPushStatus('success');
-          confetti({ particleCount: 60, spread: 55, origin: { y: 0.3 } });
+        }, (index + 1) * 120);
+      });
+    } catch (err: any) {
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(36).substring(7),
+          type: 'error',
+          text: `[git push error]: ${err.message || 'Push failure'}`,
+          timestamp: getTimeString()
         }
-      }, (index + 1) * 180);
-    });
+      ]);
+      setIsPushing(false);
+      setPushStatus('error');
+    }
   };
 
   const handleCopyLogs = () => {

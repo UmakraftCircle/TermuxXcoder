@@ -21,15 +21,23 @@ import {
   KeyRound,
   HardDrive,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  X,
+  Copy,
+  Check,
+  Eye,
+  Terminal,
+  FileBox,
+  Boxes
 } from 'lucide-react';
 import { ProjectFile } from '../types';
 import { exportProjectToZip, downloadBlob } from '../utils/zipExporter';
 import { AppEncryptedStorageService } from '../utils/encryptedStorageService';
 import confetti from 'canvas-confetti';
 
-interface WorkspaceFilesTabProps {
-  files: ProjectFile[];
+interface StoragePageTabProps {
+  files: ProjectFile[]; // App system files
+  sandboxFiles?: ProjectFile[]; // User sandbox files
   onSelectFile?: (file: ProjectFile) => void;
   onOpenTerminal?: () => void;
 }
@@ -48,15 +56,20 @@ interface TreeNode {
   checksum?: string;
 }
 
-export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
-  files,
+export const StoragePageTab: React.FC<StoragePageTabProps> = ({
+  files: appFiles,
+  sandboxFiles = [],
   onSelectFile
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeStorageView, setActiveStorageView] = useState<'all' | 'vault' | 'workspace'>('all');
+  const [activeStorageView, setActiveStorageView] = useState<'all' | 'app' | 'vault' | 'sandbox'>('all');
   const [isLockEnforced, setIsLockEnforced] = useState<boolean>(
     AppEncryptedStorageService.isVaultWriteLocked()
   );
+
+  // Inspector Modal for any clicked file
+  const [inspectedFile, setInspectedFile] = useState<ProjectFile | null>(null);
+  const [copiedInspect, setCopiedInspect] = useState(false);
 
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
     'workspace': true,
@@ -64,7 +77,7 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
     'workspace/.github/workflows': true,
     'workspace/src': true,
     'workspace/src/main': true,
-    'workspace/src/main/ai': false,
+    'workspace/src/main/ai': true,
     'workspace/src/main/common': false,
     'workspace/src/main/debugger': false,
     'workspace/src/main/editor': true,
@@ -72,10 +85,21 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
     'workspace/src/main/git': false,
     'workspace/src/main/lsp': false,
     'workspace/src/main/pty': true,
-    'workspace/src/main/terminal': false
+    'workspace/src/main/terminal': false,
+    'workspace/sandbox': true
   });
 
   const [isExporting, setIsExporting] = useState(false);
+
+  // Combine files for unified storage view
+  const allStorageFiles = useMemo(() => {
+    const taggedAppFiles = appFiles.map((f) => ({
+      ...f,
+      origin: f.origin || ('app_system' as const),
+      storageScope: f.isEncrypted ? ('app_internal_vault' as const) : ('app_system_storage' as const)
+    }));
+    return [...taggedAppFiles, ...sandboxFiles];
+  }, [appFiles, sandboxFiles]);
 
   // Toggle Immutable Write-Lock on system files
   const handleToggleVaultLock = () => {
@@ -87,16 +111,19 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
     }
   };
 
-  // Filter workspace project files
+  // Filter workspace project files by tab
   const filteredProjectFiles = useMemo(() => {
     if (activeStorageView === 'vault') {
-      return files.filter((f) => f.isEncrypted || f.storageScope === 'app_internal_vault');
+      return allStorageFiles.filter((f) => f.isEncrypted || f.storageScope === 'app_internal_vault');
     }
-    if (activeStorageView === 'workspace') {
-      return files.filter((f) => !f.isEncrypted && f.storageScope !== 'app_internal_vault');
+    if (activeStorageView === 'app') {
+      return allStorageFiles.filter((f) => f.origin === 'app_system' || f.module === 'app' || f.path.startsWith('app/') || f.storageScope === 'app_system_storage');
     }
-    return files;
-  }, [files, activeStorageView]);
+    if (activeStorageView === 'sandbox') {
+      return allStorageFiles.filter((f) => f.isSandbox || f.storageScope === 'sandbox_user' || f.origin === 'upload' || f.origin === 'import' || f.origin === 'user');
+    }
+    return allStorageFiles;
+  }, [allStorageFiles, activeStorageView]);
 
   // Build hierarchical folder tree
   const workspaceTree = useMemo(() => {
@@ -113,6 +140,8 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
       let relativePath = file.path;
       if (relativePath.startsWith('.github/')) {
         // keep .github/workflows/...
+      } else if (relativePath.startsWith('sandbox/')) {
+        // keep sandbox/...
       } else if (!relativePath.startsWith('src/') && !relativePath.startsWith('app/') && !relativePath.startsWith('core/')) {
         relativePath = `src/main/${file.module || 'common'}/${file.name}`;
       }
@@ -204,8 +233,9 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
   const handleDownloadZip = async () => {
     try {
       setIsExporting(true);
-      const blob = await exportProjectToZip(files, 'Umakraft-Secure-Workspace');
-      downloadBlob(blob, 'Umakraft-Secure-Workspace.zip');
+      const blob = await exportProjectToZip(allStorageFiles, 'Umakraft-Secure-Storage-Archive');
+      downloadBlob(blob, 'Umakraft-Secure-Storage-Archive.zip');
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.3 } });
     } catch (e) {
       console.error(e);
     } finally {
@@ -223,8 +253,8 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
   };
 
   const handleFileClick = (node: TreeNode) => {
-    if (node.projectFile && onSelectFile) {
-      onSelectFile(node.projectFile);
+    if (node.projectFile) {
+      setInspectedFile(node.projectFile);
     }
   };
 
@@ -280,7 +310,7 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
         onClick={() => handleFileClick(node)}
         className="w-full flex items-center gap-2 py-2 px-2.5 rounded-xl text-left text-xs font-mono transition-all group text-[#c9d1d9] hover:bg-[#1f6feb]/15 hover:text-[#58a6ff] active:scale-[0.99] border border-transparent hover:border-[#1f6feb]/30"
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        title={node.isReadOnly ? 'Encrypted (Read-Only)' : 'Tap to open in Coder'}
+        title="Tap to inspect code in Storage Viewer"
       >
         <span className="shrink-0 group-hover:scale-110 transition-transform">{getFileIcon(node)}</span>
         <span className="truncate text-xs font-medium text-[#f0f6fc] group-hover:text-[#58a6ff]">
@@ -295,20 +325,31 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
           </span>
         )}
 
+        {/* Origin / Sandbox Tag */}
+        {node.projectFile?.isSandbox ? (
+          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30 font-semibold shrink-0">
+            SANDBOX
+          </span>
+        ) : (
+          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#8b949e]/15 text-[#8b949e] border border-[#30363d] shrink-0">
+            APP
+          </span>
+        )}
+
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <span className="text-[10px] text-[#8b949e] font-sans">
             {node.size}
           </span>
           <span className="text-[10px] text-[#58a6ff] opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-            <Code2 className="h-3 w-3" />
-            <span className="hidden sm:inline">Open</span>
+            <Eye className="h-3 w-3" />
+            <span className="hidden sm:inline">Inspect</span>
           </span>
         </div>
       </button>
     );
   };
 
-  const vaultStats = AppEncryptedStorageService.getVaultMetadata(files);
+  const vaultStats = AppEncryptedStorageService.getVaultMetadata(allStorageFiles);
 
   return (
     <div className="space-y-3 max-w-4xl mx-auto pb-10">
@@ -323,14 +364,14 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm sm:text-base font-bold text-[#f0f6fc] tracking-tight">
-                Encrypted App Storage Vault
+                Encrypted App Storage & Workspace Vault
               </h2>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30 font-semibold">
                 ACTIVE
               </span>
             </div>
             <p className="text-[11px] text-[#8b949e] font-mono">
-              /data/data/com.umakraft.coder/encrypted_vault &bull; AES-256-GCM
+              /data/data/com.umakraft.coder/storage &bull; AES-256 Storage Enclave &bull; AI Edit Protected
             </p>
           </div>
         </div>
@@ -361,6 +402,33 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
         </div>
       </div>
 
+      {/* Partition View Filter Tabs */}
+      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+        {[
+          { id: 'all', label: `All Storage (${allStorageFiles.length})`, icon: Boxes },
+          { id: 'app', label: `App System Files (${appFiles.length})`, icon: FileBox },
+          { id: 'vault', label: 'Encrypted Vault', icon: Lock },
+          { id: 'sandbox', label: `Sandbox Files (${sandboxFiles.length})`, icon: Code2 }
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isSelected = activeStorageView === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveStorageView(tab.id as any)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono transition-all border shrink-0 ${
+                isSelected
+                  ? 'bg-[#1f6feb] text-white border-[#388bfd] font-bold shadow-md shadow-[#1f6feb]/20'
+                  : 'bg-[#161b22] text-[#8b949e] border-[#30363d] hover:bg-[#21262d] hover:text-[#f0f6fc]'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Directory Tree Full Card */}
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-3 sm:p-4 flex flex-col shadow-lg overflow-hidden min-h-[500px]">
         {/* Header with Title & Tree Controls */}
@@ -371,7 +439,7 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
               <span>/workspace</span>
             </span>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black/40 text-[#8b949e]">
-              {vaultStats.totalEncryptedFiles} Protected Files
+              {filteredProjectFiles.length} Storage Items
             </span>
           </div>
 
@@ -403,7 +471,7 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search files (e.g. android.yml, native-pty.cpp, Sora...)"
+              placeholder="Search storage files (e.g. android.yml, native-pty.cpp, Sora...)"
               className="w-full pl-9 pr-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-xl text-xs text-[#f0f6fc] placeholder-[#8b949e] focus:outline-none focus:border-[#58a6ff]"
             />
           </div>
@@ -414,15 +482,81 @@ export const StoragePageTab: React.FC<WorkspaceFilesTabProps> = ({
           {renderTreeNode(workspaceTree)}
         </div>
 
-        {/* Tree Footer with Cryptographic Tamper Seal */}
-        <div className="px-2 pt-2.5 border-t border-[#30363d] flex items-center justify-between text-[11px] text-[#8b949e] font-mono">
+        {/* Tree Footer with Cryptographic Tamper Seal & App Rule */}
+        <div className="px-2 pt-2.5 border-t border-[#30363d] flex flex-wrap items-center justify-between text-[11px] text-[#8b949e] font-mono gap-2">
           <span className="flex items-center gap-1.5 text-[#3fb950]">
             <ShieldCheck className="h-3.5 w-3.5" />
-            <span>MasterKey Keystore Active &bull; Tamper Protection Enforced</span>
+            <span>MasterKey Keystore Active &bull; App Rule: AI Edit Restricted to Sandbox/Workspace</span>
           </span>
-          <span className="text-[10px] text-[#8b949e]">AES-256-GCM</span>
+          <span className="text-[10px] text-[#8b949e]">AES-256 Storage Enclave</span>
         </div>
       </div>
+
+      {/* Storage File Inspector Modal */}
+      {inspectedFile && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl max-w-3xl w-full h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-3 sm:p-4 border-b border-[#30363d] flex items-center justify-between gap-3 bg-[#0d1117]">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-2 rounded-xl bg-[#1f6feb]/20 text-[#58a6ff]">
+                  <FileCode className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs sm:text-sm font-bold text-[#f0f6fc] truncate">
+                      {inspectedFile.name}
+                    </h3>
+                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#21262d] text-[#8b949e] border border-[#30363d]">
+                      {inspectedFile.language}
+                    </span>
+                    {inspectedFile.isEncrypted && (
+                      <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30 font-semibold">
+                        Encrypted
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] font-mono text-[#8b949e] truncate">
+                    {inspectedFile.path}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(inspectedFile.content);
+                    setCopiedInspect(true);
+                    setTimeout(() => setCopiedInspect(false), 2000);
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-xs font-mono text-[#c9d1d9] hover:text-white border border-[#30363d]"
+                >
+                  {copiedInspect ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5" />}
+                  <span className="hidden xs:inline">{copiedInspect ? 'Copied' : 'Copy'}</span>
+                </button>
+
+                <button
+                  onClick={() => setInspectedFile(null)}
+                  className="p-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Code Body */}
+            <div className="flex-1 min-h-0 p-4 bg-[#0d1117] overflow-y-auto font-mono text-xs text-[#c9d1d9] select-text whitespace-pre leading-relaxed">
+              <code>{inspectedFile.content}</code>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-[#30363d] bg-[#161b22] flex items-center justify-between text-[11px] font-mono text-[#8b949e]">
+              <span>Checksum: {inspectedFile.checksum || 'sha256:verified'}</span>
+              <span>Size: {inspectedFile.content.length} Bytes</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

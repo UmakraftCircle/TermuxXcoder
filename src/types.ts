@@ -1,15 +1,17 @@
 export interface ProjectFile {
   path: string;
   name: string;
-  category: 'workflow' | 'gradle' | 'manifest' | 'kotlin' | 'config' | 'doc';
+  category: 'workflow' | 'gradle' | 'manifest' | 'kotlin' | 'config' | 'doc' | 'generated';
   module?: string;
   content: string;
   description?: string;
-  language: 'kotlin' | 'yaml' | 'groovy' | 'properties' | 'xml' | 'json' | 'markdown' | 'bash';
+  language: 'kotlin' | 'yaml' | 'groovy' | 'properties' | 'xml' | 'json' | 'markdown' | 'bash' | 'cpp' | 'c';
   isEncrypted?: boolean;
   isReadOnly?: boolean;
   checksum?: string;
-  storageScope?: 'app_internal_vault' | 'workspace_user';
+  isSandbox?: boolean;
+  origin?: 'upload' | 'import' | 'user' | 'app_system';
+  storageScope?: 'app_internal_vault' | 'app_system_storage' | 'sandbox_user' | 'workspace_user';
 }
 
 export interface BuildDiagnostic {
@@ -47,4 +49,32 @@ export interface EngineeringVolume {
   summary: string;
   keyModules: string[];
   chapters: { title: string; desc: string }[];
+}
+
+export type AiProviderType =
+  | 'qwen_local'
+  | 'groq'
+  | 'openai'
+  | 'openrouter'
+  | 'opencode'
+  | 'gemini';
+
+export interface AiCopilotConfig {
+  provider: AiProviderType;
+  model: string;
+  apiKey: string;
+  customEndpoint?: string;
+  temperature?: number;
+  maxTokens?: number;
+  customPromptPrefix?: string;
+}
+
+export interface AiModelOption {
+  id: string;
+  name: string;
+  provider: AiProviderType;
+  description: string;
+  contextWindow?: string;
+  badge?: string;
+  isLocal?: boolean;
 }
