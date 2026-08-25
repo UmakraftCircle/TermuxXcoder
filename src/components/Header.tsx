@@ -18,10 +18,12 @@ interface HeaderProps {
   activeTab: string;
   onOpenQuickPush: () => void;
   onToggleSlideDrawer: () => void;
+  onToggleAiDrawer?: () => void;
   onGoToCoder?: () => void;
   onOpenPermissions?: () => void;
   onOpenGlobalSearch?: () => void;
   isSlideDrawerOpen?: boolean;
+  isAiDrawerOpen?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,10 +31,12 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onOpenQuickPush,
   onToggleSlideDrawer,
+  onToggleAiDrawer,
   onGoToCoder,
   onOpenPermissions,
   onOpenGlobalSearch,
-  isSlideDrawerOpen
+  isSlideDrawerOpen,
+  isAiDrawerOpen
 }) => {
   const [isExporting, setIsExporting] = useState(false);
 
@@ -106,7 +110,24 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right Section: Action Controls */}
-        <div className="flex items-center space-x-2 flex-shrink-0">
+        <div className="flex items-center space-x-1.5 sm:space-x-2 flex-shrink-0">
+          {/* AI Copilot Drawer Toggle Button */}
+          {onToggleAiDrawer && (
+            <button
+              id="btn-ai-copilot-drawer"
+              onClick={onToggleAiDrawer}
+              title="Toggle AI Copilot Chat Drawer (or swipe from right)"
+              aria-label="AI Copilot Chat Drawer"
+              className={`flex items-center justify-center h-10 w-10 min-h-[44px] min-w-[44px] rounded-xl border transition-all active:scale-95 group relative ${
+                isAiDrawerOpen
+                  ? 'bg-gradient-to-br from-[#bc8cff] to-[#8957e5] text-white border-[#d2a8ff] shadow-lg shadow-[#bc8cff]/30'
+                  : 'bg-[#21262d] hover:bg-[#30363d] border-[#30363d] hover:border-[#bc8cff]/50 text-[#bc8cff] hover:text-white'
+              }`}
+            >
+              <Sparkles className="h-5 w-5 transition-transform group-hover:scale-110" />
+            </button>
+          )}
+
           {/* Global Search & Indexer Button */}
           {onOpenGlobalSearch && (
             <button

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Layout,
   Smartphone,
@@ -27,9 +27,14 @@ import {
   Bot,
   Zap,
   ArrowRight,
-  ShieldAlert
+  ShieldAlert,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
+  ChevronRight
 } from 'lucide-react';
 import { ProjectFile } from '../types';
+import { copyToClipboard } from '../utils/clipboard';
 
 export interface LayoutWidget {
   id: string;
@@ -232,7 +237,8 @@ export const LayoutDesignerTab: React.FC<LayoutDesignerTabProps> = ({
   const [targetFramework, setTargetFramework] = useState<'compose' | 'xml'>('compose');
   const [deviceFrame, setDeviceFrame] = useState<'phone' | 'tablet'>('phone');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const [viewMode, setViewMode] = useState<'split' | 'visual' | 'code'>('split');
+  const [viewMode, setViewMode] = useState<'visual' | 'split' | 'code'>('visual');
+  const [isToolsDrawerOpen, setIsToolsDrawerOpen] = useState(false);
   
   const [layoutTree, setLayoutTree] = useState<LayoutWidget>(DEFAULT_LOGIN_COMPOSE_TREE);
   const [selectedWidgetId, setSelectedWidgetId] = useState<string>('root-column');
@@ -240,6 +246,26 @@ export const LayoutDesignerTab: React.FC<LayoutDesignerTabProps> = ({
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [savedSuccessMessage, setSavedSuccessMessage] = useState<string | null>(null);
+
+  // Swipe detection for left drawer gesture
+  const touchStartXRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null) return;
+    const diffX = e.changedTouches[0].clientX - touchStartXRef.current;
+    if (diffX > 50 && touchStartXRef.current < 80) {
+      // Swiped from left edge to open drawer
+      setIsToolsDrawerOpen(true);
+    } else if (diffX < -50 && isToolsDrawerOpen) {
+      // Swiped left to close drawer
+      setIsToolsDrawerOpen(false);
+    }
+    touchStartXRef.current = null;
+  };
 
   // Helper to generate Kotlin Jetpack Compose code from tree
   const generateComposeCode = (widget: LayoutWidget, indentLevel = 0): string => {
@@ -356,7 +382,7 @@ ${generateComposeCode(layoutTree, 1)}
   };
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText(getFullCode());
+    copyToClipboard(getFullCode());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -619,10 +645,32 @@ ${generateComposeCode(layoutTree, 1)}
   };
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#0d1117] text-[#c9d1d9] overflow-hidden rounded-xl border border-[#30363d]">
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="h-full w-full flex flex-col bg-[#0d1117] text-[#c9d1d9] overflow-hidden rounded-xl border border-[#30363d] relative"
+    >
       {/* Top Toolbar */}
-      <div className="px-3 py-2 bg-[#161b22] border-b border-[#30363d] flex flex-wrap items-center justify-between gap-2 flex-shrink-0">
+      <div className="px-3 py-2 bg-[#161b22] border-b border-[#30363d] flex flex-wrap items-center justify-between gap-2 flex-shrink-0 z-20">
         <div className="flex items-center gap-2">
+          {/* Left Drawer Toggle Button */}
+          <button
+            onClick={() => setIsToolsDrawerOpen(!isToolsDrawerOpen)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all text-xs font-mono font-bold ${
+              isToolsDrawerOpen
+                ? 'bg-[#1f6feb] text-white border-[#388bfd] shadow-md shadow-[#1f6feb]/20'
+                : 'bg-[#21262d] text-[#c9d1d9] border-[#30363d] hover:text-white hover:border-[#58a6ff]/50'
+            }`}
+            title="Toggle Tools & Widgets Drawer (or swipe from left)"
+          >
+            {isToolsDrawerOpen ? (
+              <PanelLeftClose className="h-4 w-4 text-white" />
+            ) : (
+              <PanelLeftOpen className="h-4 w-4 text-[#58a6ff]" />
+            )}
+            <span className="hidden xs:inline">{isToolsDrawerOpen ? 'Hide Tools' : 'Tools & Blueprints'}</span>
+          </button>
+
           <div className="h-7 w-7 rounded-xl bg-gradient-to-br from-[#1f6feb] to-[#8957e5] p-0.5 shadow-md flex items-center justify-center">
             <div className="h-full w-full bg-[#0d1117] rounded-[10px] flex items-center justify-center">
               <Layout className="h-4 w-4 text-[#58a6ff]" />
@@ -630,7 +678,8 @@ ${generateComposeCode(layoutTree, 1)}
           </div>
           <div>
             <h2 className="text-xs font-black text-white font-mono flex items-center gap-2">
-              <span>UI DESIGNER & COMPOSE STUDIO</span>
+              <span className="hidden sm:inline">UI DESIGNER & COMPOSE STUDIO</span>
+              <span className="sm:hidden">STUDIO</span>
               <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30">
                 LIVE
               </span>
@@ -660,7 +709,7 @@ ${generateComposeCode(layoutTree, 1)}
                   : 'text-[#8b949e] hover:text-white'
               }`}
             >
-              XML Layout
+              XML
             </button>
           </div>
 
@@ -669,7 +718,7 @@ ${generateComposeCode(layoutTree, 1)}
             <button
               onClick={() => setViewMode('visual')}
               className={`p-1.5 rounded-md ${viewMode === 'visual' ? 'bg-[#21262d] text-white' : 'text-[#8b949e]'}`}
-              title="Visual Canvas Only"
+              title="Visual Canvas (Maximized)"
             >
               <Eye className="h-3.5 w-3.5" />
             </button>
@@ -718,18 +767,20 @@ ${generateComposeCode(layoutTree, 1)}
           <button
             onClick={handleCopyCode}
             className="flex items-center gap-1.5 px-2.5 py-1 bg-[#21262d] hover:bg-[#30363d] text-white text-xs font-mono font-bold rounded-lg border border-[#30363d] transition-all"
+            title="Copy Code"
           >
             {copied ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5" />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
+            <span className="hidden xs:inline">{copied ? 'Copied' : 'Copy'}</span>
           </button>
 
           {onAddFileToSandbox && (
             <button
               onClick={handleSaveToSandbox}
-              className="flex items-center gap-1.5 px-3 py-1 bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-mono font-bold rounded-lg shadow-md transition-all active:scale-95"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-mono font-bold rounded-lg shadow-md transition-all active:scale-95"
+              title="Add to Workspace"
             >
               <FolderPlus className="h-3.5 w-3.5" />
-              <span>Add to Workspace</span>
+              <span className="hidden sm:inline">Add to Workspace</span>
             </button>
           )}
         </div>
@@ -737,7 +788,7 @@ ${generateComposeCode(layoutTree, 1)}
 
       {/* Notification Toast */}
       {savedSuccessMessage && (
-        <div className="bg-[#238636]/20 border-b border-[#3fb950]/40 px-3 py-1.5 text-xs font-mono text-[#3fb950] flex items-center justify-between animate-in fade-in">
+        <div className="bg-[#238636]/20 border-b border-[#3fb950]/40 px-3 py-1.5 text-xs font-mono text-[#3fb950] flex items-center justify-between animate-in fade-in z-20">
           <span>{savedSuccessMessage}</span>
           {onSelectTab && (
             <button
@@ -751,120 +802,184 @@ ${generateComposeCode(layoutTree, 1)}
         </div>
       )}
 
-      {/* Main Designer Area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: Component Palette & AI Prompt */}
-        <aside className="w-56 bg-[#161b22] border-r border-[#30363d] flex flex-col flex-shrink-0 overflow-y-auto p-3 space-y-4">
-          {/* AI Generator Box */}
-          <div className="p-2.5 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2">
-            <span className="text-[11px] font-bold font-mono text-white flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-[#bc8cff]" />
-              <span>AI Layout Generator</span>
-            </span>
-            <form onSubmit={handleAiGenerateLayout} className="space-y-1.5">
-              <input
-                type="text"
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="e.g. Login screen, dashboard..."
-                className="w-full bg-[#161b22] border border-[#30363d] focus:border-[#58a6ff] rounded-lg px-2 py-1.5 text-xs text-white font-mono placeholder-[#6e7681] focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={isGenerating || !aiPrompt.trim()}
-                className="w-full py-1.5 bg-[#1f6feb] hover:bg-[#388bfd] text-white rounded-lg text-xs font-bold font-mono flex items-center justify-center gap-1 disabled:opacity-40"
-              >
-                {isGenerating ? <Zap className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
-                <span>{isGenerating ? 'Generating...' : 'Design Layout'}</span>
-              </button>
-            </form>
-          </div>
-
-          {/* Palette Items */}
-          <div className="space-y-2">
-            <span className="text-[10px] font-mono font-bold text-[#8b949e] uppercase tracking-wider block">
-              Widgets & Containers
-            </span>
-            <div className="grid grid-cols-2 gap-1.5 text-xs font-mono">
-              <button
-                onClick={() => handleAddWidget('Text')}
-                className="p-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff]/40 text-left flex items-center gap-1.5 text-white transition-all"
-              >
-                <Type className="h-3.5 w-3.5 text-[#58a6ff]" />
-                <span>Text</span>
-              </button>
-              <button
-                onClick={() => handleAddWidget('Button')}
-                className="p-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#3fb950]/40 text-left flex items-center gap-1.5 text-white transition-all"
-              >
-                <Square className="h-3.5 w-3.5 text-[#3fb950]" />
-                <span>Button</span>
-              </button>
-              <button
-                onClick={() => handleAddWidget('TextField')}
-                className="p-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#d29922]/40 text-left flex items-center gap-1.5 text-white transition-all"
-              >
-                <Sliders className="h-3.5 w-3.5 text-[#d29922]" />
-                <span>Input</span>
-              </button>
-              <button
-                onClick={() => handleAddWidget('Card')}
-                className="p-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#bc8cff]/40 text-left flex items-center gap-1.5 text-white transition-all"
-              >
-                <Layers className="h-3.5 w-3.5 text-[#bc8cff]" />
-                <span>Card</span>
-              </button>
-              <button
-                onClick={() => handleAddWidget('Box')}
-                className="p-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff]/40 text-left flex items-center gap-1.5 text-white transition-all"
-              >
-                <Square className="h-3.5 w-3.5 text-[#58a6ff]" />
-                <span>Box</span>
-              </button>
-              <button
-                onClick={() => handleAddWidget('Spacer')}
-                className="p-2 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#8b949e] text-left flex items-center gap-1.5 text-white transition-all"
-              >
-                <Move className="h-3.5 w-3.5 text-[#8b949e]" />
-                <span>Spacer</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Templates */}
-          <div className="space-y-1.5 pt-2 border-t border-[#30363d]">
-            <span className="text-[10px] font-mono font-bold text-[#8b949e] uppercase tracking-wider block">
-              Sample Blueprints
-            </span>
-            <button
-              onClick={() => setLayoutTree(DEFAULT_LOGIN_COMPOSE_TREE)}
-              className="w-full py-1.5 px-2 bg-[#0d1117] hover:bg-[#21262d] rounded-lg border border-[#30363d] text-left text-xs font-mono text-white flex items-center justify-between"
+      {/* Main Designer Canvas Stage & Swipeable Left Drawer */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Swipe-able Tools Drawer (Overlay / Left Drawer) */}
+        {isToolsDrawerOpen && (
+          <>
+            {/* Backdrop on mobile */}
+            <div
+              onClick={() => setIsToolsDrawerOpen(false)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-[2px] z-30 transition-opacity"
+            />
+            <aside
+              className="absolute top-0 bottom-0 left-0 w-72 xs:w-80 bg-[#161b22] border-r border-[#30363d] flex flex-col z-40 overflow-y-auto p-3.5 space-y-4 shadow-2xl animate-in slide-in-from-left duration-200"
             >
-              <span>Auth Login Screen</span>
-              <ArrowRight className="h-3 w-3 text-[#8b949e]" />
-            </button>
-            <button
-              onClick={() => setLayoutTree(DEFAULT_DASHBOARD_COMPOSE_TREE)}
-              className="w-full py-1.5 px-2 bg-[#0d1117] hover:bg-[#21262d] rounded-lg border border-[#30363d] text-left text-xs font-mono text-white flex items-center justify-between"
-            >
-              <span>Metrics Dashboard</span>
-              <ArrowRight className="h-3 w-3 text-[#8b949e]" />
-            </button>
-          </div>
-        </aside>
+              {/* Drawer Title & Close Button */}
+              <div className="flex items-center justify-between pb-2 border-b border-[#30363d]">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-[#58a6ff]" />
+                  <h3 className="text-xs font-bold text-white font-mono uppercase tracking-wider">
+                    Tools & Widgets
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setIsToolsDrawerOpen(false)}
+                  className="p-1 rounded-lg hover:bg-[#21262d] text-[#8b949e] hover:text-white"
+                  title="Close Drawer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
 
-        {/* Center: Interactive Device Viewport */}
+              {/* AI Generator Box */}
+              <div className="p-3 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2">
+                <span className="text-[11px] font-bold font-mono text-white flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-[#bc8cff]" />
+                  <span>AI Layout Generator</span>
+                </span>
+                <form onSubmit={handleAiGenerateLayout} className="space-y-2">
+                  <input
+                    type="text"
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="e.g. Login screen, stats dashboard..."
+                    className="w-full bg-[#161b22] border border-[#30363d] focus:border-[#58a6ff] rounded-lg px-2.5 py-1.5 text-xs text-white font-mono placeholder-[#6e7681] focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isGenerating || !aiPrompt.trim()}
+                    className="w-full py-2 bg-[#1f6feb] hover:bg-[#388bfd] text-white rounded-lg text-xs font-bold font-mono flex items-center justify-center gap-1.5 disabled:opacity-40 shadow-sm"
+                  >
+                    {isGenerating ? <Zap className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
+                    <span>{isGenerating ? 'Synthesizing...' : 'Design Layout'}</span>
+                  </button>
+                </form>
+              </div>
+
+              {/* Palette Items Grid */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-mono font-bold text-[#8b949e] uppercase tracking-wider block">
+                  Click to Add Component
+                </span>
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                  <button
+                    onClick={() => {
+                      handleAddWidget('Text');
+                      setIsToolsDrawerOpen(false);
+                    }}
+                    className="p-2.5 rounded-xl bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff]/40 text-left flex items-center gap-2 text-white transition-all shadow-sm"
+                  >
+                    <Type className="h-4 w-4 text-[#58a6ff]" />
+                    <span>Text</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddWidget('Button');
+                      setIsToolsDrawerOpen(false);
+                    }}
+                    className="p-2.5 rounded-xl bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#3fb950]/40 text-left flex items-center gap-2 text-white transition-all shadow-sm"
+                  >
+                    <Square className="h-4 w-4 text-[#3fb950]" />
+                    <span>Button</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddWidget('TextField');
+                      setIsToolsDrawerOpen(false);
+                    }}
+                    className="p-2.5 rounded-xl bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#d29922]/40 text-left flex items-center gap-2 text-white transition-all shadow-sm"
+                  >
+                    <Sliders className="h-4 w-4 text-[#d29922]" />
+                    <span>Input</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddWidget('Card');
+                      setIsToolsDrawerOpen(false);
+                    }}
+                    className="p-2.5 rounded-xl bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#bc8cff]/40 text-left flex items-center gap-2 text-white transition-all shadow-sm"
+                  >
+                    <Layers className="h-4 w-4 text-[#bc8cff]" />
+                    <span>Card</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddWidget('Box');
+                      setIsToolsDrawerOpen(false);
+                    }}
+                    className="p-2.5 rounded-xl bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff]/40 text-left flex items-center gap-2 text-white transition-all shadow-sm"
+                  >
+                    <Square className="h-4 w-4 text-[#58a6ff]" />
+                    <span>Box</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddWidget('Spacer');
+                      setIsToolsDrawerOpen(false);
+                    }}
+                    className="p-2.5 rounded-xl bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#8b949e] text-left flex items-center gap-2 text-white transition-all shadow-sm"
+                  >
+                    <Move className="h-4 w-4 text-[#8b949e]" />
+                    <span>Spacer</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Blueprints */}
+              <div className="space-y-2 pt-2 border-t border-[#30363d]">
+                <span className="text-[10px] font-mono font-bold text-[#8b949e] uppercase tracking-wider block">
+                  Sample Blueprints
+                </span>
+                <button
+                  onClick={() => {
+                    setLayoutTree(DEFAULT_LOGIN_COMPOSE_TREE);
+                    setIsToolsDrawerOpen(false);
+                  }}
+                  className="w-full py-2 px-2.5 bg-[#0d1117] hover:bg-[#21262d] rounded-xl border border-[#30363d] text-left text-xs font-mono text-white flex items-center justify-between"
+                >
+                  <span>Auth Login Screen</span>
+                  <ChevronRight className="h-4 w-4 text-[#8b949e]" />
+                </button>
+                <button
+                  onClick={() => {
+                    setLayoutTree(DEFAULT_DASHBOARD_COMPOSE_TREE);
+                    setIsToolsDrawerOpen(false);
+                  }}
+                  className="w-full py-2 px-2.5 bg-[#0d1117] hover:bg-[#21262d] rounded-xl border border-[#30363d] text-left text-xs font-mono text-white flex items-center justify-between"
+                >
+                  <span>Metrics Dashboard</span>
+                  <ChevronRight className="h-4 w-4 text-[#8b949e]" />
+                </button>
+              </div>
+            </aside>
+          </>
+        )}
+
+        {/* Center: Full-Screen Device Viewport Canvas (Huge Screen Area) */}
         {(viewMode === 'visual' || viewMode === 'split') && (
-          <div className="flex-1 bg-[#0d1117] p-4 flex items-center justify-center overflow-auto">
+          <div className="flex-1 bg-[#0d1117] p-2 sm:p-6 flex flex-col items-center justify-center overflow-auto relative">
+            {/* Quick left edge swipe hint tab */}
+            {!isToolsDrawerOpen && (
+              <button
+                onClick={() => setIsToolsDrawerOpen(true)}
+                className="absolute left-2 top-4 z-10 px-2.5 py-1.5 rounded-xl bg-[#161b22]/90 hover:bg-[#21262d] border border-[#30363d] text-[#58a6ff] hover:text-white text-xs font-mono flex items-center gap-1.5 shadow-lg backdrop-blur-sm transition-all"
+                title="Swipe from left or click to open Tools"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+                <span className="text-[11px]">Swipe for Tools</span>
+              </button>
+            )}
+
             <div
               className={`bg-[#0d1117] border-4 border-[#30363d] rounded-[36px] shadow-2xl flex flex-col overflow-hidden transition-all duration-300 relative ${
                 deviceFrame === 'phone'
                   ? orientation === 'portrait'
-                    ? 'w-[320px] h-[580px]'
-                    : 'w-[580px] h-[320px]'
+                    ? 'w-[320px] sm:w-[360px] h-[580px] sm:h-[650px]'
+                    : 'w-[580px] sm:w-[650px] h-[320px] sm:h-[360px]'
                   : orientation === 'portrait'
-                  ? 'w-[480px] h-[640px]'
-                  : 'w-[640px] h-[480px]'
+                  ? 'w-[480px] sm:w-[540px] h-[640px] sm:h-[720px]'
+                  : 'w-[640px] sm:w-[720px] h-[480px] sm:h-[540px]'
               }`}
             >
               {/* Phone Top Notch / Speaker */}
@@ -873,7 +988,7 @@ ${generateComposeCode(layoutTree, 1)}
               </div>
 
               {/* Viewport Canvas Stage */}
-              <div className="flex-1 overflow-y-auto p-2">
+              <div className="flex-1 overflow-y-auto p-3 sm:p-4">
                 {renderVisualNode(layoutTree)}
               </div>
 
@@ -887,8 +1002,8 @@ ${generateComposeCode(layoutTree, 1)}
 
         {/* Right: Real-Time Generated Source Code */}
         {(viewMode === 'code' || viewMode === 'split') && (
-          <div className="flex-1 bg-[#0d1117] border-l border-[#30363d] flex flex-col min-w-[320px] overflow-hidden">
-            <div className="px-3 py-1.5 bg-[#161b22] border-b border-[#30363d] flex items-center justify-between text-xs font-mono text-[#8b949e]">
+          <div className="flex-1 bg-[#0d1117] border-l border-[#30363d] flex flex-col min-w-[300px] sm:min-w-[360px] overflow-hidden">
+            <div className="px-3 py-2 bg-[#161b22] border-b border-[#30363d] flex items-center justify-between text-xs font-mono text-[#8b949e]">
               <span className="flex items-center gap-1.5">
                 <FileCode className="h-3.5 w-3.5 text-[#58a6ff]" />
                 <span className="text-white font-bold">
@@ -897,7 +1012,7 @@ ${generateComposeCode(layoutTree, 1)}
               </span>
               <span>{getFullCode().split('\n').length} lines</span>
             </div>
-            <pre className="flex-1 p-3 text-xs font-mono text-[#c9d1d9] overflow-auto bg-[#0d1117] selection:bg-[#1f6feb]/30">
+            <pre className="flex-1 p-3 text-xs font-mono text-[#c9d1d9] overflow-auto bg-[#0d1117] selection:bg-[#1f6feb]/30 leading-relaxed">
               <code>{getFullCode()}</code>
             </pre>
           </div>

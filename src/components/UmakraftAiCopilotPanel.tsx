@@ -35,6 +35,7 @@ import {
 import { ProjectFile, AiCopilotConfig, CopilotLayoutMode } from '../types';
 import { AI_PROVIDERS, getIsUnrestrainedMode, setIsUnrestrainedMode } from '../utils/aiCopilotService';
 import { speechService, VoiceOption } from '../utils/speechService';
+import { copyToClipboard } from '../utils/clipboard';
 import { AiMemoryRagModal } from './AiMemoryRagModal';
 import confetti from 'canvas-confetti';
 
@@ -192,7 +193,7 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
   if (!isOpen) return null;
 
   const handleCopyCode = (snippet: string, msgId: string) => {
-    navigator.clipboard.writeText(snippet);
+    copyToClipboard(snippet);
     setCopiedId(msgId);
     confetti({ particleCount: 15, spread: 35 });
     setTimeout(() => setCopiedId(null), 2000);
@@ -443,20 +444,17 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
       )}
 
       {/* 2. Main Body: Top-to-Bottom Icon Dock on Top-Left + Messages on Right */}
-      <div className="flex-1 min-h-0 flex gap-2 pt-1.5 pb-1">
-        {/* TOP-TO-BOTTOM LEFT ICON DOCK */}
-        <div className="flex flex-col gap-2 p-1.5 bg-[#161b22] border border-[#30363d] rounded-xl shrink-0 items-center justify-start shadow-md w-11 sm:w-12">
+      <div className="flex-1 min-h-0 flex flex-col sm:flex-row gap-1.5 sm:gap-2 pt-1 pb-1">
+        {/* RESPONSIVE ICON TOOLBAR: Horizontal ribbon on mobile, vertical side dock on sm+ screens */}
+        <div className="flex flex-row sm:flex-col gap-1.5 p-1 sm:p-1.5 bg-[#161b22] border border-[#30363d] rounded-xl shrink-0 items-center justify-start overflow-x-auto sm:overflow-y-auto scrollbar-none shadow-md w-full sm:w-12">
           {/* 1. CAMERA SCAN CODE PHOTO (Top-Left Icon) */}
           <button
             onClick={onOpenScanner}
             disabled={isAiLoading}
             title="Scan Code Photo (Camera / Image Vision)"
-            className="p-2 rounded-xl bg-[#58a6ff]/20 hover:bg-[#58a6ff]/35 text-[#58a6ff] hover:text-white border border-[#58a6ff]/50 transition-all active:scale-95 disabled:opacity-40 shadow-sm relative group"
+            className="p-2 min-h-[38px] min-w-[38px] rounded-xl bg-[#58a6ff]/20 hover:bg-[#58a6ff]/35 text-[#58a6ff] hover:text-white border border-[#58a6ff]/50 transition-all active:scale-95 disabled:opacity-40 shadow-sm flex items-center justify-center shrink-0"
           >
             <Camera className="h-4 w-4" />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              Scan Code Photo
-            </span>
           </button>
 
           {/* 2. CHECK CODE & FIX (1-Tap Audit & Fix) */}
@@ -470,28 +468,22 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
             }
             disabled={isAiLoading}
             title="Check Code & Auto-Fix"
-            className="p-2 rounded-xl bg-[#e3b341]/15 hover:bg-[#e3b341]/30 text-[#e3b341] hover:text-[#f0e6c8] border border-[#e3b341]/40 transition-all active:scale-95 disabled:opacity-40 shadow-sm relative group"
+            className="p-2 min-h-[38px] min-w-[38px] rounded-xl bg-[#e3b341]/15 hover:bg-[#e3b341]/30 text-[#e3b341] hover:text-[#f0e6c8] border border-[#e3b341]/40 transition-all active:scale-95 disabled:opacity-40 shadow-sm flex items-center justify-center shrink-0"
           >
             <ShieldCheck className="h-4 w-4" />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              Check Code & Fix
-            </span>
           </button>
 
           {/* 3. WEB GROUNDING TOGGLE */}
           <button
             onClick={() => setWebSearchGrounded(!webSearchGrounded)}
             title={webSearchGrounded ? 'Web Grounding is ON' : 'Turn ON Web Search Grounding'}
-            className={`p-2 rounded-xl border transition-all active:scale-95 relative group ${
+            className={`p-2 min-h-[38px] min-w-[38px] rounded-xl border transition-all active:scale-95 flex items-center justify-center shrink-0 ${
               webSearchGrounded
                 ? 'bg-[#1f6feb] text-white border-[#388bfd] shadow-md shadow-[#1f6feb]/30'
                 : 'bg-[#21262d] text-[#8b949e] hover:text-[#58a6ff] border-[#30363d]'
             }`}
           >
             <Globe className={`h-4 w-4 ${webSearchGrounded ? 'animate-spin' : ''}`} />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              {webSearchGrounded ? 'Web Grounding: ON' : 'Web Grounding: OFF'}
-            </span>
           </button>
 
           {/* 4. REFACTOR & OPTIMIZE */}
@@ -505,12 +497,9 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
             }
             disabled={isAiLoading}
             title="Refactor & Optimize Code"
-            className="p-2 rounded-xl bg-[#21262d] hover:bg-[#ffa657]/20 text-[#8b949e] hover:text-[#ffa657] border border-[#30363d] hover:border-[#ffa657]/40 transition-all active:scale-95 disabled:opacity-40 relative group"
+            className="p-2 min-h-[38px] min-w-[38px] rounded-xl bg-[#21262d] hover:bg-[#ffa657]/20 text-[#8b949e] hover:text-[#ffa657] border border-[#30363d] hover:border-[#ffa657]/40 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center shrink-0"
           >
             <Zap className="h-4 w-4" />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              Optimize Code
-            </span>
           </button>
 
           {/* 5. EXPLAIN CODE */}
@@ -524,55 +513,43 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
             }
             disabled={isAiLoading}
             title="Explain Active Code"
-            className="p-2 rounded-xl bg-[#21262d] hover:bg-[#d2a8ff]/20 text-[#8b949e] hover:text-[#d2a8ff] border border-[#30363d] hover:border-[#d2a8ff]/40 transition-all active:scale-95 disabled:opacity-40 relative group"
+            className="p-2 min-h-[38px] min-w-[38px] rounded-xl bg-[#21262d] hover:bg-[#d2a8ff]/20 text-[#8b949e] hover:text-[#d2a8ff] border border-[#30363d] hover:border-[#d2a8ff]/40 transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center shrink-0"
           >
             <BookOpen className="h-4 w-4" />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              Explain Code
-            </span>
           </button>
 
           {/* 6. AI MEMORY & RAG KNOWLEDGE BASE */}
           <button
             onClick={() => setIsMemoryModalOpen(true)}
             title="AI Memory & RAG Knowledge"
-            className="p-2 rounded-xl bg-[#21262d] hover:bg-[#a371f7]/20 text-[#8b949e] hover:text-[#d2a8ff] border border-[#30363d] hover:border-[#a371f7]/40 transition-all active:scale-95 relative group"
+            className="p-2 min-h-[38px] min-w-[38px] rounded-xl bg-[#21262d] hover:bg-[#a371f7]/20 text-[#8b949e] hover:text-[#d2a8ff] border border-[#30363d] hover:border-[#a371f7]/40 transition-all active:scale-95 flex items-center justify-center shrink-0"
           >
             <Brain className="h-4 w-4" />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              Memory & RAG
-            </span>
           </button>
 
           {/* 7. VOICE TTS TOGGLE */}
           <button
             onClick={() => setShowVoiceControls(!showVoiceControls)}
             title="Toggle Voice Speech Controls"
-            className={`p-2 rounded-xl border transition-all active:scale-95 relative group ${
+            className={`p-2 min-h-[38px] min-w-[38px] rounded-xl border transition-all active:scale-95 flex items-center justify-center shrink-0 ${
               autoSpeakEnabled || isSpeaking
                 ? 'bg-[#238636]/20 border-[#238636]/50 text-[#3fb950]'
                 : 'bg-[#21262d] text-[#8b949e] hover:text-white border-[#30363d]'
             }`}
           >
             <Volume2 className={`h-4 w-4 ${isSpeaking ? 'animate-pulse text-[#3fb950]' : ''}`} />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              Voice Settings
-            </span>
           </button>
 
           {/* Spacer */}
-          <div className="flex-1" />
+          <div className="hidden sm:block flex-1" />
 
-          {/* 8. AI ENGINE SETTINGS (Bottom of Left Dock) */}
+          {/* 8. AI ENGINE SETTINGS */}
           <button
             onClick={onOpenAiSettings}
             title="AI Engine Settings & Keys"
-            className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-white border border-[#30363d] transition-all active:scale-95 relative group"
+            className="p-2 min-h-[38px] min-w-[38px] rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-white border border-[#30363d] transition-all active:scale-95 flex items-center justify-center shrink-0"
           >
             <Settings className="h-4 w-4" />
-            <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/90 text-white text-[10px] font-mono rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
-              Engine Settings
-            </span>
           </button>
         </div>
 

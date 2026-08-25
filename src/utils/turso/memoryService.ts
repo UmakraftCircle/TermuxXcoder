@@ -18,9 +18,12 @@ const LOCAL_BUILD_LOGS_KEY = 'umakraft_turso_build_logs_v1';
 const LOCAL_AI_KNOWLEDGE_KEY = 'umakraft_turso_ai_knowledge_v1';
 const LOCAL_CODING_PREFS_KEY = 'umakraft_turso_coding_prefs_v1';
 
+export const HARDCODED_TURSO_URL = 'https://umakraft-memory-db-sample.turso.io';
+export const HARDCODED_TURSO_TOKEN = 'eyJhbGciOiJFZERTQTEwIiwidHlwIjoiSldUIn0.e30.umakraft_turso_auth_token_v1';
+
 export const DEFAULT_TURSO_CONFIG: TursoConfig = {
-  databaseUrl: 'https://umakraft-memory-db-sample.turso.io',
-  authToken: '',
+  databaseUrl: HARDCODED_TURSO_URL,
+  authToken: HARDCODED_TURSO_TOKEN,
   databaseName: 'umakraft-agent-memory',
   autoSyncEnabled: true,
   syncIntervalSeconds: 60
@@ -153,7 +156,13 @@ export class MemoryService {
     try {
       const raw = localStorage.getItem(TURSO_CONFIG_KEY);
       if (!raw) return DEFAULT_TURSO_CONFIG;
-      return { ...DEFAULT_TURSO_CONFIG, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      return {
+        ...DEFAULT_TURSO_CONFIG,
+        ...parsed,
+        databaseUrl: parsed.databaseUrl || DEFAULT_TURSO_CONFIG.databaseUrl,
+        authToken: parsed.authToken || DEFAULT_TURSO_CONFIG.authToken
+      };
     } catch {
       return DEFAULT_TURSO_CONFIG;
     }

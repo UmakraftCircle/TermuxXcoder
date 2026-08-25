@@ -48,6 +48,7 @@ import {
   RotateCw
 } from 'lucide-react';
 import { ProjectFile, AiCopilotConfig, CopilotLayoutMode } from '../types';
+import { copyToClipboard } from '../utils/clipboard';
 import confetti from 'canvas-confetti';
 import { formatCode } from '../utils/codeFormatter';
 import {
@@ -1229,7 +1230,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   };
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText(editorContent);
+    copyToClipboard(editorContent);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
@@ -1604,9 +1605,9 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         {/* Main Body Container: Split Side-by-Side vs Bottom Dock vs Code Alone */}
         <div className={`flex-1 min-h-0 flex ${copilotLayoutMode === 'bottom' && isAiModalOpen ? 'flex-col' : 'flex-col lg:flex-row'} overflow-hidden relative`}>
           {/* Work Area: Left Rail + Main Code Viewer */}
-          <div className="flex-1 min-h-0 min-w-0 flex flex-row overflow-hidden relative">
-            {/* TOP-LEFT VERTICAL ACTION TOOLBAR (Stacked from top to bottom) */}
-          <div className="w-11 sm:w-12 bg-[#161b22] border-r border-[#30363d] flex flex-col items-center py-2 gap-1.5 shrink-0 z-20 overflow-y-auto scrollbar-none shadow-sm select-none">
+          <div className="flex-1 min-h-0 min-w-0 flex flex-col sm:flex-row overflow-hidden relative">
+            {/* TOP-LEFT RESPONSIVE ACTION TOOLBAR (Horizontal ribbon on mobile, vertical rail on sm+) */}
+            <div className="w-full sm:w-12 h-auto sm:h-full bg-[#161b22] border-b sm:border-b-0 sm:border-r border-[#30363d] flex flex-row sm:flex-col items-center py-1.5 sm:py-2 px-2 sm:px-0 gap-1.5 shrink-0 z-20 overflow-x-auto sm:overflow-y-auto scrollbar-none shadow-sm select-none">
             {/* 1. Edit / Check Mark Toggle Button */}
             {currentFile && (
               <button
@@ -1726,9 +1727,9 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                 <UploadCloud className="h-4 w-4" />
               </button>
 
-              {/* Flyout Menu Content on the Right */}
+              {/* Flyout Menu Content */}
               {isImportMenuOpen && (
-                <div className="absolute left-full top-0 ml-1.5 w-52 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute left-0 sm:left-full top-full sm:top-0 mt-1.5 sm:mt-0 sm:ml-1.5 w-52 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                   <button
                     onClick={() => {
                       fileInputRef.current?.click();
@@ -1852,9 +1853,9 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                 <History className="h-4 w-4" />
               </button>
 
-              {/* Flyout Menu for Recent Files on Right */}
+              {/* Flyout Menu for Recent Files */}
               {isRecentDropdownOpen && (
-                <div className="absolute left-full top-0 ml-1.5 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute left-0 sm:left-full top-full sm:top-0 mt-1.5 sm:mt-0 sm:ml-1.5 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                   <div className="flex items-center justify-between px-2 py-1 border-b border-[#30363d] mb-1">
                     <span className="text-[10px] font-bold text-[#8b949e] uppercase tracking-wider flex items-center gap-1">
                       <Clock className="h-3 w-3 text-[#58a6ff]" /> Recent Files

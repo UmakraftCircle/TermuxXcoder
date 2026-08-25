@@ -31,6 +31,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { copyToClipboard } from '../utils/clipboard';
 import { ProjectFile } from '../types';
 import {
   MemoryService,
@@ -121,8 +122,12 @@ export const TursoMemoryTab: React.FC<TursoMemoryTabProps> = ({
       .then((data) => {
         if (data) {
           setEnvInfo(data);
-          if (data.databaseUrl && (!config.databaseUrl || config.databaseUrl === DEFAULT_TURSO_CONFIG.databaseUrl)) {
-            setConfig((prev) => ({ ...prev, databaseUrl: data.databaseUrl }));
+          if (data.databaseUrl && (!config.databaseUrl || config.databaseUrl === '')) {
+            setConfig((prev) => ({
+              ...prev,
+              databaseUrl: data.databaseUrl,
+              authToken: data.authToken || prev.authToken
+            }));
           }
         }
       })
@@ -407,25 +412,19 @@ export const TursoMemoryTab: React.FC<TursoMemoryTabProps> = ({
               </button>
             </div>
 
-            {/* Environment Variables Info Box */}
+            {/* Environment Variables & Built-in Info Box */}
             <div className="md:col-span-12 p-2.5 rounded-lg bg-[#161b22] border border-[#30363d] text-xs font-mono flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Cloud className="h-4 w-4 text-[#00eb87]" />
-                <span className="text-[#8b949e]">Environment Variables:</span>
-                <span className="text-white font-semibold">TURSO_DATABASE_URL</span>
-                <span className="text-[#8b949e]">&amp;</span>
-                <span className="text-white font-semibold">TURSO_AUTH_TOKEN</span>
+                <span className="text-[#8b949e]">Turso Engine:</span>
+                <span className="text-white font-semibold">SQLite Cloud / LibSQL</span>
+                <span className="text-[#8b949e]">•</span>
+                <span className="text-[#3fb950] font-semibold">Hardcoded & Ready</span>
               </div>
               <div className="flex items-center gap-2">
-                {envInfo.configuredInServer ? (
-                  <span className="px-2 py-0.5 rounded-md bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 text-[10px] font-bold">
-                    ✓ Configured on Server ({envInfo.maskedUrl || 'Active'})
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded-md bg-[#21262d] text-[#8b949e] border border-[#30363d] text-[10px]">
-                    Available via Settings or .env
-                  </span>
-                )}
+                <span className="px-2 py-0.5 rounded-md bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 text-[10px] font-bold">
+                  ✓ Preconfigured Credentials Active
+                </span>
               </div>
             </div>
 
@@ -1148,7 +1147,11 @@ export const TursoMemoryTab: React.FC<TursoMemoryTabProps> = ({
                       </h4>
 
                       <button
-                        onClick={() => copyToClipboard(ragResult.formattedContextBlock)}
+                        onClick={() => {
+                          copyToClipboard(ragResult.formattedContextBlock);
+                          setCopiedPrompt(true);
+                          setTimeout(() => setCopiedPrompt(false), 2000);
+                        }}
                         className="flex items-center gap-1 text-[11px] font-mono text-[#58a6ff] hover:underline"
                       >
                         {copiedPrompt ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5" />}

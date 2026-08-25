@@ -12,6 +12,7 @@ import {
   Zap
 } from 'lucide-react';
 import { exportProjectToZip, downloadBlob } from '../utils/zipExporter';
+import { copyToClipboard } from '../utils/clipboard';
 import { ProjectFile } from '../types';
 import confetti from 'canvas-confetti';
 
@@ -29,7 +30,7 @@ export const QuickPushModal: React.FC<QuickPushModalProps> = ({ isOpen, onClose,
   if (!isOpen) return null;
 
   const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
+    copyToClipboard(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };

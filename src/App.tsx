@@ -44,6 +44,7 @@ import { StoragePageTab } from './components/StoragePageTab';
 import { LayoutDesignerTab } from './components/LayoutDesignerTab';
 import { TursoMemoryTab } from './components/TursoMemoryTab';
 import { SlideTerminalDrawer } from './components/SlideTerminalDrawer';
+import { AiCopilotDrawer } from './components/AiCopilotDrawer';
 import { QuickPushModal } from './components/QuickPushModal';
 import { AndroidPermissionsModal } from './components/AndroidPermissionsModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
@@ -82,9 +83,41 @@ export default function App() {
   const [activeSandboxFilePath, setActiveSandboxFilePath] = useState<string>('');
   const [isQuickPushOpen, setIsQuickPushOpen] = useState(false);
   const [isSlideDrawerOpen, setIsSlideDrawerOpen] = useState(false);
+  const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+
+  // Touch gesture support for swiping to open AI drawer from right edge
+  const touchStartPosRef = React.useRef<{ x: number; y: number } | null>(null);
+
+  const handleGlobalTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartPosRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY
+      };
+    }
+  };
+
+  const handleGlobalTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartPosRef.current || e.changedTouches.length === 0) return;
+    const startX = touchStartPosRef.current.x;
+    const startY = touchStartPosRef.current.y;
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const deltaX = endX - startX;
+    const deltaY = Math.abs(endY - startY);
+
+    const screenWidth = window.innerWidth;
+
+    // Swipe left from right edge (starts in rightmost 25% of screen and drags left >= 50px)
+    if (startX > screenWidth * 0.75 && deltaX < -50 && deltaY < 80) {
+      setIsAiDrawerOpen(true);
+    }
+
+    touchStartPosRef.current = null;
+  };
 
   // Sync sandbox files with localStorage
   useEffect(() => {
@@ -216,7 +249,11 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117] text-[#c9d1d9] font-sans antialiased select-none">
+    <div
+      className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117] text-[#c9d1d9] font-sans antialiased select-none"
+      onTouchStart={handleGlobalTouchStart}
+      onTouchEnd={handleGlobalTouchEnd}
+    >
       {/* Top Header */}
       <Header
         files={appFiles}
@@ -226,6 +263,8 @@ export default function App() {
         onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
         onToggleSlideDrawer={() => setIsSlideDrawerOpen(!isSlideDrawerOpen)}
         isSlideDrawerOpen={isSlideDrawerOpen}
+        onToggleAiDrawer={() => setIsAiDrawerOpen(!isAiDrawerOpen)}
+        isAiDrawerOpen={isAiDrawerOpen}
         onGoToCoder={() => setActiveTab('coder')}
       />
 
@@ -333,6 +372,10 @@ export default function App() {
             <AiCustomizerTab
               files={appFiles}
               onAddFile={handleAddAppFile}
+              onGoToCoder={() => {
+                setActiveTab('coder');
+                setIsAiModalOpen(true);
+              }}
             />
           </div>
         )}
@@ -382,6 +425,19 @@ export default function App() {
         }}
       />
 
+      {/* Swipeable / Toggleable AI Copilot Chat Drawer */}
+      <AiCopilotDrawer
+        isOpen={isAiDrawerOpen}
+        onClose={() => setIsAiDrawerOpen(false)}
+        files={[...sandboxFiles, ...appFiles]}
+        activeFile={sandboxFiles.find((f) => f.path === activeSandboxFilePath) || sandboxFiles[0] || null}
+        onAddFileToWorkspace={handleAddSandboxFile}
+        onOpenFullSettings={() => {
+          setIsAiDrawerOpen(false);
+          setActiveTab('ai');
+        }}
+      />
+
       {/* Floating Bottom Navigation Bar */}
       <nav
         id="umakraft-bottom-nav"
@@ -398,13 +454,13 @@ export default function App() {
             }}
             title="Code Editor"
             className={`relative flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 rounded-2xl transition-all active:scale-95 group ${
-              activeTab === 'coder' && !isAiModalOpen
+              activeTab === 'coder'
                 ? 'text-white bg-gradient-to-b from-[#1f6feb] to-[#1158c7] shadow-lg shadow-[#1f6feb]/35 border border-[#388bfd]/50'
                 : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
             }`}
           >
             <Code2 className="h-5 w-5 transition-transform group-hover:scale-110" />
-            {activeTab === 'coder' && !isAiModalOpen && (
+            {activeTab === 'coder' && (
               <span className="absolute -bottom-1 h-1 w-3 rounded-full bg-white shadow-sm" />
             )}
           </button>
@@ -449,22 +505,22 @@ export default function App() {
             )}
           </button>
 
-          {/* Copilot */}
+          {/* AI Hub */}
           <button
             id="btn-nav-ai"
             onClick={() => {
-              setActiveTab('coder');
-              setIsAiModalOpen((prev) => !prev);
+              setActiveTab('ai');
+              setIsAiModalOpen(false);
             }}
-            title="Copilot"
+            title="AI Hub & Models"
             className={`relative flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 rounded-2xl transition-all active:scale-95 group ${
-              isAiModalOpen
+              activeTab === 'ai'
                 ? 'text-white bg-gradient-to-b from-[#bc8cff] to-[#8957e5] shadow-lg shadow-[#bc8cff]/35 border border-[#d2a8ff]/50'
                 : 'text-[#bc8cff] hover:text-[#d2a8ff] hover:bg-[#21262d]'
             }`}
           >
             <Sparkles className="h-5 w-5 transition-transform group-hover:scale-110" />
-            {isAiModalOpen && (
+            {activeTab === 'ai' && (
               <span className="absolute -bottom-1 h-1 w-3 rounded-full bg-white shadow-sm" />
             )}
           </button>
