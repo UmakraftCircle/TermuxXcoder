@@ -67,6 +67,10 @@ export interface AiCopilotConfig {
   temperature?: number;
   maxTokens?: number;
   customPromptPrefix?: string;
+  autoSpeak?: boolean;
+  speechRate?: number;
+  speechPitch?: number;
+  selectedVoiceURI?: string;
 }
 
 export interface AiModelOption {

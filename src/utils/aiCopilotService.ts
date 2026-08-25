@@ -274,11 +274,19 @@ export const AI_PROVIDERS: Record<AiProviderType, ProviderMeta> = {
     models: [
       {
         id: 'gemini-3.7-flash',
-        name: 'Gemini 3.7 Flash',
+        name: 'Gemini 3.7 Flash (Default)',
         provider: 'gemini',
-        description: 'Latest flagship speed & reasoning model with advanced code comprehension.',
+        description: 'Latest flagship speed & reasoning model with advanced code comprehension and understanding.',
         contextWindow: '1M tokens',
-        badge: 'Latest 3.7'
+        badge: 'Recommended'
+      },
+      {
+        id: 'gemini-3.1-pro-preview',
+        name: 'Gemini 3.1 Pro (Complex Reasoning)',
+        provider: 'gemini',
+        description: 'Deep reasoning for complex multi-module Android architectures and C++ NDK algorithms.',
+        contextWindow: '2M tokens',
+        badge: 'Deep Reasoning'
       },
       {
         id: 'gemini-2.5-flash',
@@ -291,7 +299,7 @@ export const AI_PROVIDERS: Record<AiProviderType, ProviderMeta> = {
         id: 'gemini-2.5-pro',
         name: 'Gemini 2.5 Pro',
         provider: 'gemini',
-        description: 'Deep reasoning for complex multi-module Android architectures.',
+        description: 'High capacity model for multi-file Android project analysis.',
         contextWindow: '2M tokens',
         badge: 'Deep Pro'
       }
@@ -300,12 +308,15 @@ export const AI_PROVIDERS: Record<AiProviderType, ProviderMeta> = {
 };
 
 export const DEFAULT_AI_CONFIG: AiCopilotConfig = {
-  provider: 'qwen_local',
-  model: 'qwen1.5-coder-1.8b',
+  provider: 'gemini',
+  model: 'gemini-3.7-flash',
   apiKey: '',
-  customEndpoint: 'http://localhost:11434/v1',
+  customEndpoint: 'https://generativelanguage.googleapis.com/v1beta',
   temperature: 0.2,
-  maxTokens: 2048
+  maxTokens: 4096,
+  autoSpeak: false,
+  speechRate: 1.0,
+  speechPitch: 1.0
 };
 
 export function getSavedAiConfig(): AiCopilotConfig {
@@ -379,18 +390,29 @@ export async function requestAiAssist(params: {
   prompt: string;
   currentFile?: string;
   context?: string;
+  ragContext?: string;
+  memoryContext?: string;
+  history?: { role: 'user' | 'model'; text: string }[];
   configOverride?: Partial<AiCopilotConfig>;
   image?: { data: string; mimeType?: string };
+  useWebSearch?: boolean;
 }): Promise<{
   reply: string;
   provider: AiProviderType;
   model: string;
   fallback?: boolean;
+  groundedWithWeb?: boolean;
 }> {
   const config = {
     ...getSavedAiConfig(),
     ...(params.configOverride || {})
   };
+
+  const combinedContext = [
+    params.context || '',
+    params.ragContext || '',
+    params.memoryContext || ''
+  ].filter(Boolean).join('\n\n');
 
   const res = await fetch('/api/ai-assist', {
     method: 'POST',
@@ -398,14 +420,16 @@ export async function requestAiAssist(params: {
     body: JSON.stringify({
       prompt: params.prompt,
       currentFile: params.currentFile,
-      context: params.context,
+      context: combinedContext,
+      history: params.history,
       provider: config.provider,
       model: config.model,
       apiKey: config.apiKey,
       customEndpoint: config.customEndpoint,
       temperature: config.temperature,
       maxTokens: config.maxTokens,
-      image: params.image
+      image: params.image,
+      useWebSearch: params.useWebSearch
     })
   });
 
@@ -419,6 +443,7 @@ export async function requestAiAssist(params: {
     reply: data.reply || 'No code generated.',
     provider: data.provider || config.provider,
     model: data.model || config.model,
-    fallback: data.fallback
+    fallback: data.fallback,
+    groundedWithWeb: data.groundedWithWeb
   };
 }

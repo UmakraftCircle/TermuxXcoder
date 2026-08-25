@@ -34,7 +34,10 @@ import {
   Trash2,
   Camera,
   ScanLine,
-  Image as ImageIcon
+  Image as ImageIcon,
+  BookOpen,
+  Columns2,
+  FileText
 } from 'lucide-react';
 import { ProjectFile, AiCopilotConfig } from '../types';
 import confetti from 'canvas-confetti';
@@ -44,13 +47,19 @@ import {
   requestAiAssist,
   AI_PROVIDERS
 } from '../utils/aiCopilotService';
+import { AiRagMemoryService } from '../utils/aiRagMemoryService';
 import { AiProviderSettingsModal } from './AiProviderSettingsModal';
 import { CameraCodeScannerModal } from './CameraCodeScannerModal';
+import { MarkdownPreview } from './MarkdownPreview';
+import { UmakraftAiCopilotPanel } from './UmakraftAiCopilotPanel';
+import { WebDocsSearchModal } from './WebDocsSearchModal';
 import {
   parseUploadedFiles,
   parseZipArchive,
   createNewSandboxFile
 } from '../utils/sandboxFileManager';
+
+export type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
 export interface FileVisualInfo {
   extLabel: string;
@@ -180,8 +189,7 @@ interface ChatMessage {
   timestamp: string;
 }
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'protected';
-
+// Workspace Scope: Isolated User Sandbox
 export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   files: sandboxFiles,
   appFiles = [],
@@ -195,14 +203,12 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   onCloseAiModal,
   onOpenAiModal,
 }) => {
-  // Workspace Scope: 'sandbox' (editable user files) or 'app' (system storage files)
-  const [workspaceScope, setWorkspaceScope] = useState<'sandbox' | 'app'>('sandbox');
-
-  const activeFileList = workspaceScope === 'sandbox' ? sandboxFiles : appFiles;
+  // Active Workspace Files strictly isolated to user sandbox files
+  const activeFileList = sandboxFiles;
 
   const [selectedFilePath, setSelectedFilePath] = useState<string>(() => {
     if (activeFilePath) return activeFilePath;
-    return sandboxFiles[0]?.path || appFiles[0]?.path || '';
+    return sandboxFiles[0]?.path || '';
   });
 
   const [editorContent, setEditorContent] = useState<string>('');
@@ -269,6 +275,10 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
 
   // Camera / Image Vision Code Scanner Modal
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+  const [isWebDocsSearchOpen, setIsWebDocsSearchOpen] = useState(false);
+
+  // Editor View Mode: 'code' (raw syntax-highlighted editor) | 'preview' (rendered Markdown) | 'split' (side-by-side)
+  const [editorViewMode, setEditorViewMode] = useState<'code' | 'preview' | 'split'>('code');
 
   // AI Chat & Assistance State
   const [prompt, setPrompt] = useState('');
@@ -324,6 +334,14 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         return updated;
       });
 
+      // Auto-set view mode based on file type
+      const isMd = file.name.toLowerCase().endsWith('.md') || file.name.toLowerCase().endsWith('.markdown') || file.language === 'markdown';
+      if (isMd) {
+        setEditorViewMode('preview');
+      } else {
+        setEditorViewMode('code');
+      }
+
       // Show floating tapped notification banner
       const meta = getFileVisualInfo(file.name, file.language);
       setActiveFileToast({
@@ -350,12 +368,16 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       setEditorContent(currentFile.content);
       setIsEditing(false);
       setLastSuggestedCode(null);
-      if (workspaceScope === 'app') {
-        setSaveStatus('protected');
+
+      const isMd = currentFile.name.toLowerCase().endsWith('.md') || currentFile.name.toLowerCase().endsWith('.markdown') || currentFile.language === 'markdown';
+      if (isMd) {
+        setEditorViewMode('preview');
       } else {
-        setSaveStatus('saved');
-        setLastSavedTime('Just now');
+        setEditorViewMode('code');
       }
+
+      setSaveStatus('saved');
+      setLastSavedTime('Just now');
 
       // Sync recent file
       setRecentFilePaths((prev) => {
@@ -383,7 +405,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         setIsSearchOpen(false);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (currentFile && workspaceScope === 'sandbox') {
+        if (currentFile) {
           onUpdateFileContent(currentFile.path, editorContent);
           setSaveStatus('saved');
           setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
@@ -392,12 +414,12 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSearchOpen, currentFile, workspaceScope, editorContent, onUpdateFileContent]);
+  }, [isSearchOpen, currentFile, editorContent, onUpdateFileContent]);
 
   // Automatic Debounced Auto-Save Engine for sandbox files
   const triggerAutoSave = useCallback(
     (newContent: string) => {
-      if (!currentFile || workspaceScope !== 'sandbox') return;
+      if (!currentFile) return;
 
       setSaveStatus('saving');
       if (autoSaveTimerRef.current) {
@@ -412,7 +434,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         );
       }, 700);
     },
-    [currentFile, workspaceScope, onUpdateFileContent]
+    [currentFile, onUpdateFileContent]
   );
 
   const handleEditorChange = (newContent: string) => {
@@ -463,7 +485,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   };
 
   const handleReplaceOne = () => {
-    if (!searchQuery || workspaceScope !== 'sandbox' || totalMatches === 0) return;
+    if (!searchQuery || totalMatches === 0) return;
     const currentLineNum = matchedLineIndices[currentMatchIndex] || matchedLineIndices[0];
     if (!currentLineNum) return;
 
@@ -481,7 +503,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   };
 
   const handleReplaceAll = () => {
-    if (!searchQuery || workspaceScope !== 'sandbox') return;
+    if (!searchQuery) return;
     const regex = new RegExp(
       searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
       isMatchCase ? 'g' : 'gi'
@@ -513,7 +535,6 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const droppedFiles: File[] = Array.from(e.dataTransfer.files);
       setIsImporting(true);
-      setWorkspaceScope('sandbox');
 
       const zipFile = droppedFiles.find((f) => f.name.endsWith('.zip'));
       if (zipFile && droppedFiles.length === 1) {
@@ -553,7 +574,6 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setIsImporting(true);
-      setWorkspaceScope('sandbox');
       try {
         const parsed = await parseUploadedFiles(e.target.files);
         if (parsed.length > 0) {
@@ -576,7 +596,6 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   const handleZipInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setIsImporting(true);
-      setWorkspaceScope('sandbox');
       try {
         const zipFile = e.target.files[0];
         const parsed = await parseZipArchive(zipFile);
@@ -600,7 +619,6 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   const handleFolderInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setIsImporting(true);
-      setWorkspaceScope('sandbox');
       try {
         const parsed = await parseUploadedFiles(e.target.files);
         if (parsed.length > 0) {
@@ -648,7 +666,6 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     if (onAddSandboxFile) {
       onAddSandboxFile(created);
     }
-    setWorkspaceScope('sandbox');
     setSelectedFilePath(created.path);
     setIsNewFileModalOpen(false);
     setNewFileName('');
@@ -666,10 +683,11 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     handleSendAiPrompt(promptToRun);
   };
 
-  // AI Prompt Dispatcher (With Camera and Image Vision Support)
+  // AI Prompt Dispatcher (With Camera and Image Vision Support & Web Grounding)
   const handleSendAiPrompt = async (
     customPrompt?: string,
-    imageAttachment?: { data: string; mimeType?: string }
+    imageAttachment?: { data: string; mimeType?: string },
+    useWebSearch?: boolean
   ) => {
     const textToSend = (customPrompt || prompt).trim() || (imageAttachment ? 'Analyze and extract code from this image' : '');
     if (!textToSend || isAiLoading) return;
@@ -689,14 +707,30 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
 
     try {
       const activeMeta = AI_PROVIDERS[aiConfig.provider];
+      const historyPayload = messages.slice(-8).map((m) => ({
+        role: m.sender === 'user' ? ('user' as const) : ('model' as const),
+        text: m.text
+      }));
+
+      // Execute workspace RAG search across project files
+      const allProjectFiles = [...sandboxFiles, ...appFiles];
+      const ragResults = AiRagMemoryService.searchProjectRag(textToSend, allProjectFiles, 3);
+      
+      // Auto-learn user pattern from prompt
+      AiRagMemoryService.autoLearnFromInteraction(textToSend);
+
       const result = await requestAiAssist({
         prompt: textToSend,
         currentFile: currentFile?.path || undefined,
         context: currentFile
           ? `File: ${currentFile.path} (${currentFile.language})\n\nCode:\n\`\`\`${currentFile.language}\n${editorContent.slice(0, 8000)}\n\`\`\``
           : 'Workspace (No file currently selected)',
+        ragContext: ragResults.contextPromptBlock,
+        memoryContext: ragResults.memoryBlock,
+        history: historyPayload,
         configOverride: aiConfig,
-        image: imageAttachment
+        image: imageAttachment,
+        useWebSearch
       });
 
       const replyText = result.reply || 'No code generated.';
@@ -732,7 +766,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
 
   const handleApplySuggestedCode = (code: string) => {
     setEditorContent(code);
-    if (currentFile && workspaceScope === 'sandbox') {
+    if (currentFile) {
       onUpdateFileContent(currentFile.path, code);
       setSaveStatus('saved');
       setLastSavedTime('Just now (AI Patch)');
@@ -741,7 +775,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   };
 
   const handleSaveManualEdit = () => {
-    if (currentFile && workspaceScope === 'sandbox') {
+    if (currentFile) {
       onUpdateFileContent(currentFile.path, editorContent);
       setSaveStatus('saved');
       setLastSavedTime('Just now');
@@ -763,27 +797,6 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     a.download = currentFile?.name || 'source-code.txt';
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  // Copy app system file to sandbox for editing
-  const handleCopyAppFileToSandbox = () => {
-    if (!currentFile) return;
-    const newPath = `sandbox/${currentFile.name}`;
-    const copyFile: ProjectFile = {
-      ...currentFile,
-      path: newPath,
-      isSandbox: true,
-      origin: 'user',
-      storageScope: 'sandbox_user'
-    };
-    if (onAddSandboxFile) {
-      onAddSandboxFile(copyFile);
-    }
-    setWorkspaceScope('sandbox');
-    setSelectedFilePath(newPath);
-    setSaveStatus('saved');
-    setLastSavedTime('Just now');
-    confetti({ particleCount: 30, spread: 50, origin: { y: 0.5 } });
   };
 
   // Quick insertion of developer symbols
@@ -902,189 +915,23 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
 
       {/* Primary IDE Container */}
       <div className="flex-1 min-h-0 bg-[#0d1117] border border-[#30363d] rounded-2xl overflow-hidden shadow-2xl flex flex-col relative">
-        {/* Top Header Strip: Scope Switcher + Recent List + Tab View Toggle + File Tabs + Consolidated Actions */}
-        <div className="bg-[#161b22] border-b border-[#30363d] flex items-center justify-between px-2 pt-1.5 pb-0 gap-2 flex-shrink-0 relative">
-          {/* Left: Scope Toggle + Recent List + View Mode & File Tabs */}
+        {/* Top Header Strip: Scope Switcher + File Tabs + Auto-Save Status & Breadcrumbs */}
+        <div className="bg-[#161b22] border-b border-[#30363d] flex items-center justify-between px-2.5 pt-1.5 pb-1 gap-2 flex-shrink-0 relative">
+          {/* Left: Scope Toggle + File Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none flex-1 min-w-0 pr-1">
-            {/* Scope Switcher Pill: Sandbox vs App Files */}
-            <div className="flex items-center bg-[#0d1117] p-0.5 rounded-xl border border-[#30363d] shrink-0 mr-0.5">
-              <button
-                onClick={() => {
-                  setWorkspaceScope('sandbox');
-                  if (sandboxFiles.length > 0) handleSelectFileWithToast(sandboxFiles[0]);
-                }}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-mono font-semibold transition-all ${
-                  workspaceScope === 'sandbox'
-                    ? 'bg-[#1f6feb] text-white shadow-sm'
-                    : 'text-[#8b949e] hover:text-[#f0f6fc]'
-                }`}
-                title="User Sandbox Files"
-              >
-                <Code2 className="h-3 w-3" />
-                <span className="hidden sm:inline">Sandbox</span>
-                <span className="text-[10px] opacity-80 font-mono">({sandboxFiles.length})</span>
-              </button>
-              <button
-                onClick={() => {
-                  setWorkspaceScope('app');
-                  if (appFiles.length > 0) handleSelectFileWithToast(appFiles[0]);
-                }}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-mono font-semibold transition-all ${
-                  workspaceScope === 'app'
-                    ? 'bg-[#238636] text-white shadow-sm'
-                    : 'text-[#8b949e] hover:text-[#f0f6fc]'
-                }`}
-                title="App System Storage Files"
-              >
-                <HardDrive className="h-3 w-3" />
-                <span className="hidden sm:inline">App Storage</span>
-                <span className="text-[10px] opacity-80 font-mono">({appFiles.length})</span>
-              </button>
+            {/* Workspace Isolation Indicator */}
+            <div className="flex items-center gap-1.5 bg-[#0d1117] px-2.5 py-1 rounded-xl border border-[#30363d] shrink-0 mr-1 text-xs font-mono">
+              <Code2 className="h-3.5 w-3.5 text-[#58a6ff]" />
+              <span className="text-white font-bold">Workspace</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#238636]/30 font-semibold">
+                {sandboxFiles.length}
+              </span>
             </div>
-
-            {/* Recent List Dropdown Pill */}
-            <div className="relative shrink-0" ref={recentDropdownRef}>
-              <button
-                onClick={() => setIsRecentDropdownOpen((prev) => !prev)}
-                title="Recent files history"
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-mono font-semibold transition-all border ${
-                  isRecentDropdownOpen
-                    ? 'bg-[#58a6ff]/20 text-[#58a6ff] border-[#58a6ff]/40 shadow-sm'
-                    : 'bg-[#0d1117] hover:bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] border-[#30363d]'
-                }`}
-              >
-                <History className="h-3 w-3 text-[#58a6ff]" />
-                <span className="text-[11px] hidden xs:inline">Recent</span>
-                {recentFilePaths.length > 0 && (
-                  <span className="text-[9px] px-1 rounded bg-[#21262d] text-[#58a6ff] font-bold">
-                    {recentFilePaths.length}
-                  </span>
-                )}
-                <ChevronDown className="h-2.5 w-2.5 text-[#8b949e]" />
-              </button>
-
-              {/* Recent Files Dropdown Popup */}
-              {isRecentDropdownOpen && (
-                <div className="absolute left-0 mt-1 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                  <div className="flex items-center justify-between px-2 py-1 border-b border-[#30363d] mb-1">
-                    <span className="text-[10px] font-bold text-[#8b949e] uppercase tracking-wider flex items-center gap-1">
-                      <Clock className="h-3 w-3 text-[#58a6ff]" /> Recent Files
-                    </span>
-                    {recentFilePaths.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setRecentFilePaths([]);
-                          try {
-                            localStorage.removeItem('umakraft_recent_files');
-                          } catch {}
-                        }}
-                        className="text-[10px] text-[#8b949e] hover:text-[#f85149] transition-colors flex items-center gap-0.5"
-                        title="Clear recent list"
-                      >
-                        <Trash2 className="h-2.5 w-2.5" />
-                        <span>Clear</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {recentFilePaths.length === 0 ? (
-                    <div className="p-3 text-center text-xs text-[#8b949e] italic">
-                      No recent files yet
-                    </div>
-                  ) : (
-                    <div className="max-h-64 overflow-y-auto space-y-0.5 scrollbar-thin">
-                      {recentFilePaths.map((path) => {
-                        const fileObj =
-                          activeFileList.find((f) => f.path === path) ||
-                          sandboxFiles.find((f) => f.path === path) ||
-                          appFiles.find((f) => f.path === path);
-
-                        const displayName = fileObj ? fileObj.name : path.split('/').pop() || path;
-                        const meta = getFileVisualInfo(displayName, fileObj?.language);
-                        const isCurrent = currentFile?.path === path;
-
-                        return (
-                          <button
-                            key={path}
-                            onClick={() => {
-                              if (fileObj) {
-                                if (sandboxFiles.some((f) => f.path === path)) {
-                                  setWorkspaceScope('sandbox');
-                                } else if (appFiles.some((f) => f.path === path)) {
-                                  setWorkspaceScope('app');
-                                }
-                                handleSelectFileWithToast(fileObj);
-                              } else {
-                                setSelectedFilePath(path);
-                              }
-                              setIsRecentDropdownOpen(false);
-                            }}
-                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-mono text-left transition-colors ${
-                              isCurrent
-                                ? 'bg-[#1f6feb]/20 text-[#58a6ff] font-bold'
-                                : 'text-[#c9d1d9] hover:bg-[#21262d] hover:text-white'
-                            }`}
-                          >
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 border ${meta.bgColor} ${meta.borderColor} ${meta.color}`}
-                            >
-                              {meta.extLabel}
-                            </span>
-                            <div className="truncate flex-1 min-w-0">
-                              <div className="truncate font-semibold">{displayName}</div>
-                              <div className="text-[9px] text-[#8b949e] truncate">{path}</div>
-                            </div>
-                            {isCurrent && (
-                              <span className="text-[9px] px-1 py-0.2 rounded bg-[#1f6feb] text-white">
-                                Active
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* View Mode Toggle: Icon Only (Fit All Files) vs Full */}
-            <button
-              onClick={() => {
-                const nextMode = tabViewMode === 'icon_only' ? 'full' : 'icon_only';
-                setTabViewMode(nextMode);
-                try {
-                  localStorage.setItem('umakraft_tab_mode', nextMode);
-                } catch {}
-              }}
-              title={
-                tabViewMode === 'icon_only'
-                  ? 'Currently in Icon-Only Mode (Fits All Files). Tap to expand names.'
-                  : 'Currently in Expanded Mode. Tap to switch to Icon-Only to fit all files.'
-              }
-              className={`p-1 px-1.5 rounded-lg text-xs font-mono flex items-center gap-1 border shrink-0 transition-all active:scale-95 ${
-                tabViewMode === 'icon_only'
-                  ? 'bg-[#21262d] text-[#e3b341] border-[#e3b341]/40 hover:bg-[#30363d]'
-                  : 'bg-[#0d1117] text-[#8b949e] border-[#30363d] hover:text-white'
-              }`}
-            >
-              {tabViewMode === 'icon_only' ? (
-                <>
-                  <LayoutGrid className="h-3 w-3 text-[#e3b341]" />
-                  <span className="text-[10px] font-bold text-[#e3b341] hidden sm:inline">Icon Mode</span>
-                </>
-              ) : (
-                <>
-                  <List className="h-3 w-3 text-[#8b949e]" />
-                  <span className="text-[10px] font-semibold hidden sm:inline">Expanded</span>
-                </>
-              )}
-            </button>
 
             {/* Visual File Tabs */}
             {activeFileList.length === 0 ? (
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-xl text-xs font-mono text-[#8b949e] italic">
-                <span>(No files in this scope)</span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono text-[#8b949e] italic">
+                <span>(No files in workspace)</span>
               </div>
             ) : (
               activeFileList.map((file) => {
@@ -1095,7 +942,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                   return (
                     <div
                       key={file.path}
-                      className={`relative group flex items-center justify-center h-8 min-w-[36px] px-1 rounded-t-xl transition-all font-mono shrink-0 border-t border-x ${
+                      className={`relative group flex items-center justify-center h-7 min-w-[34px] px-1 rounded-lg transition-all font-mono shrink-0 border ${
                         isSelected
                           ? `bg-[#0d1117] ${meta.borderColor} text-[#f0f6fc] font-bold shadow-md ring-1 ring-[#58a6ff]/30`
                           : 'bg-[#161b22] border-transparent text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'
@@ -1104,7 +951,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                       <button
                         onClick={() => handleSelectFileWithToast(file)}
                         title={`${file.name} • ${meta.typeDesc}\nTap to open (Path: ${file.path})`}
-                        className="flex items-center justify-center p-1 rounded-md transition-all active:scale-95"
+                        className="flex items-center justify-center p-0.5 rounded transition-all active:scale-95"
                       >
                         <span
                           className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all ${
@@ -1123,7 +970,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                       )}
 
                       {/* Delete button only for sandbox files on hover */}
-                      {workspaceScope === 'sandbox' && onDeleteSandboxFile && (
+                      {onDeleteSandboxFile && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1143,9 +990,9 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                 return (
                   <div
                     key={file.path}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-xl text-xs font-mono transition-all shrink-0 border-t border-x ${
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-all shrink-0 border ${
                       isSelected
-                        ? `bg-[#0d1117] ${meta.borderColor} text-[#f0f6fc] border-b-0 font-bold shadow-sm ring-1 ring-[#58a6ff]/20`
+                        ? `bg-[#0d1117] ${meta.borderColor} text-[#f0f6fc] font-bold shadow-sm ring-1 ring-[#58a6ff]/20`
                         : 'bg-[#161b22] text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d] border-transparent'
                     }`}
                   >
@@ -1165,7 +1012,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                     </button>
 
                     {/* Delete button only for sandbox files */}
-                    {workspaceScope === 'sandbox' && onDeleteSandboxFile && (
+                    {onDeleteSandboxFile && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1181,33 +1028,68 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                 );
               })
             )}
-
-            {/* Plus New File Button (Only in Sandbox) */}
-            {workspaceScope === 'sandbox' && (
-              <button
-                onClick={() => setIsNewFileModalOpen(true)}
-                title="Create New File"
-                className="p-1 px-2 rounded-t-xl bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-white text-xs font-mono flex items-center gap-1 shrink-0 transition-all border border-b-0 border-[#30363d]"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span className="text-[11px] font-semibold hidden xs:inline">New</span>
-              </button>
-            )}
           </div>
 
-          {/* Right: Consolidated Action Toolbar */}
-          <div className="flex items-center gap-1.5 pb-1 flex-shrink-0">
-            {/* AI Check Code & Diagnose Button */}
+          {/* Right Header Status: Real-time Auto-Save Status Badge & File Details */}
+          <div className="flex items-center gap-2 flex-shrink-0 text-[11px] font-mono">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#0d1117] border border-[#30363d] text-[10px]">
+              {saveStatus === 'saving' ? (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#e3b341] animate-pulse" />
+                  <span className="text-[#e3b341] font-semibold hidden sm:inline">Saving...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3 w-3 text-[#3fb950]" />
+                  <span className="text-[#3fb950] font-semibold hidden sm:inline">Auto-Saved</span>
+                </>
+              )}
+            </div>
+
+            {currentFile && (
+              <span className="text-[10px] text-[#8b949e] hidden lg:inline truncate max-w-[160px]">
+                {currentFile.name} &bull; {lines.length} lines
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Main Body: Top-Left Icon Rail (From Top to Bottom) + Code Viewer Area */}
+        <div className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
+          {/* TOP-LEFT VERTICAL ACTION TOOLBAR (Stacked from top to bottom) */}
+          <div className="w-11 sm:w-12 bg-[#161b22] border-r border-[#30363d] flex flex-col items-center py-2 gap-1.5 shrink-0 z-20 overflow-y-auto scrollbar-none shadow-sm select-none">
+            {/* 1. Edit / Done Button */}
+            {/* 1. Edit / Check Mark Toggle Button */}
+            {currentFile && (
+              <button
+                onClick={() => {
+                  if (isEditing) {
+                    handleSaveManualEdit();
+                  } else {
+                    setIsEditing(true);
+                  }
+                }}
+                title={isEditing ? 'Done Editing (Auto-Saved)' : 'Edit File (Click to edit code directly)'}
+                className={`p-2 rounded-xl text-xs flex items-center justify-center transition-all active:scale-95 border ${
+                  isEditing
+                    ? 'bg-[#238636] hover:bg-[#2ea043] text-white border-[#3fb950] ring-2 ring-[#3fb950]/30 shadow-lg shadow-[#238636]/30'
+                    : 'bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-white border-[#30363d]'
+                }`}
+              >
+                {isEditing ? <Check className="h-4 w-4 text-white" /> : <Edit3 className="h-4 w-4" />}
+              </button>
+            )}
+
+            {/* 2. AI Check Code & Diagnose Button */}
             <button
               onClick={() => handleCheckCodeAndDiagnose()}
-              title="AI Code Inspector: Analyze code for bugs, errors & recommended fixes (Local & Cloud AI)"
-              className="p-1.5 px-2.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#e3b341] hover:text-[#f0e6c8] border border-[#e3b341]/40 text-xs font-mono flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+              title="AI Code Inspector: Analyze code for bugs, errors & recommended fixes"
+              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#e3b341] hover:text-[#f0e6c8] border border-[#e3b341]/40 text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
             >
-              <ShieldCheck className="h-3.5 w-3.5 text-[#e3b341]" />
-              <span className="text-[11px] font-bold">Check Code</span>
+              <ShieldCheck className="h-4 w-4 text-[#e3b341]" />
             </button>
 
-            {/* Search Toggle Button */}
+            {/* 3. Search & Replace (Find) */}
             <button
               onClick={() => {
                 setIsSearchOpen((prev) => !prev);
@@ -1215,32 +1097,33 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                   setTimeout(() => searchInputRef.current?.focus(), 50);
                 }
               }}
-              title="Search and Replace (Ctrl+F)"
-              className={`p-1.5 px-2 rounded-xl text-xs font-mono flex items-center gap-1 border transition-all active:scale-95 shadow-sm ${
+              title="Search and Replace in Code (Ctrl+F)"
+              className={`p-2 rounded-xl text-xs flex items-center justify-center border transition-all active:scale-95 shadow-sm ${
                 isSearchOpen
-                  ? 'bg-[#1f6feb] text-white border-[#388bfd]'
+                  ? 'bg-[#1f6feb] text-white border-[#388bfd] ring-2 ring-[#1f6feb]/30'
                   : 'bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border-[#30363d]'
               }`}
             >
-              <Search className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-semibold hidden md:inline">Find</span>
+              <Search className="h-4 w-4" />
             </button>
 
-            {/* Unified Import Dropdown Menu */}
+            {/* 4. Unified Import Flyout Dropdown */}
             <div className="relative" ref={importMenuRef}>
               <button
                 onClick={() => setIsImportMenuOpen((prev) => !prev)}
-                title="Import files, folder or ZIP"
-                className="p-1.5 px-2.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-white border border-[#30363d] text-xs font-mono flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                title="Import files, folder or project ZIP"
+                className={`p-2 rounded-xl border text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm ${
+                  isImportMenuOpen
+                    ? 'bg-[#1f6feb] text-white border-[#388bfd]'
+                    : 'bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-white border-[#30363d]'
+                }`}
               >
-                <UploadCloud className="h-3.5 w-3.5" />
-                <span className="text-[11px] font-semibold hidden sm:inline">Import</span>
-                <ChevronDown className="h-3 w-3 text-[#8b949e]" />
+                <UploadCloud className="h-4 w-4" />
               </button>
 
-              {/* Dropdown Menu Content */}
+              {/* Flyout Menu Content on the Right */}
               {isImportMenuOpen && (
-                <div className="absolute right-0 mt-1 w-52 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute left-full top-0 ml-1.5 w-52 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                   <button
                     onClick={() => {
                       fileInputRef.current?.click();
@@ -1301,589 +1184,577 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
               )}
             </div>
 
-            {/* Edit Mode Toggle Button (Sandbox) OR Copy to Sandbox Button (App Storage) */}
-            {workspaceScope === 'sandbox' && currentFile && (
+            {/* 5. Create New File */}
+            <button
+              onClick={() => setIsNewFileModalOpen(true)}
+              title="Create New File in Workspace"
+              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#3fb950] hover:text-white border border-[#30363d] text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+
+            {/* 6. Scan Code Photo (Camera Vision) */}
+            <button
+              onClick={() => setIsCameraScannerOpen(true)}
+              title="Camera Vision: Scan handwritten or printed code photo"
+              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#a371f7] hover:text-white border border-[#a371f7]/30 text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
+            >
+              <Camera className="h-4 w-4 text-[#a371f7]" />
+            </button>
+
+            {/* 7. Copy File Content */}
+            {currentFile && (
               <button
-                onClick={() => {
-                  if (isEditing) {
-                    handleSaveManualEdit();
-                  } else {
-                    setIsEditing(true);
-                  }
-                }}
-                title={isEditing ? 'Done Editing (Auto-Saved)' : 'Edit File'}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all border active:scale-95 ${
-                  isEditing
-                    ? 'bg-[#238636] hover:bg-[#2ea043] text-white border-[#3fb950]/50 shadow-sm'
-                    : 'bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border-[#30363d]'
-                }`}
+                onClick={handleCopyCode}
+                title="Copy Entire File to Clipboard"
+                className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-[#58a6ff] border border-[#30363d] text-xs flex items-center justify-center transition-all active:scale-95"
               >
-                {isEditing ? (
-                  <>
-                    <Check className="h-3.5 w-3.5" />
-                    <span className="text-[11px]">Done</span>
-                  </>
-                ) : (
-                  <>
-                    <Edit3 className="h-3.5 w-3.5 text-[#58a6ff]" />
-                    <span className="text-[11px] hidden xs:inline">Edit</span>
-                  </>
-                )}
+                {copiedCode ? <Check className="h-4 w-4 text-[#3fb950]" /> : <Copy className="h-4 w-4" />}
               </button>
             )}
 
-            {workspaceScope === 'app' && currentFile && (
+            {/* 8. Download File */}
+            {currentFile && (
               <button
-                onClick={handleCopyAppFileToSandbox}
-                title="Copy file to Sandbox for editing"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-white border border-[#30363d] text-xs font-semibold transition-all active:scale-95 shadow-sm"
+                onClick={handleDownloadSingleFile}
+                title={`Download ${currentFile.name}`}
+                className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-[#58a6ff] border border-[#30363d] text-xs flex items-center justify-center transition-all active:scale-95"
               >
-                <Copy className="h-3.5 w-3.5" />
-                <span className="text-[11px] hidden xs:inline">Copy to Edit</span>
+                <Download className="h-4 w-4" />
               </button>
             )}
 
-            {/* Single AI Engine Model Pill */}
+            {/* 9. AI Copilot Model & Settings */}
             <button
               onClick={() => setIsAiSettingsOpen(true)}
-              title="Configure AI Engine & Models"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[11px] font-mono text-[#c9d1d9] hover:text-white transition-all active:scale-95 shadow-sm"
+              title={`Configure AI Models (${AI_PROVIDERS[aiConfig.provider]?.shortName || 'Qwen 1.5'})`}
+              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-xs text-[#bc8cff] hover:text-white flex items-center justify-center transition-all active:scale-95 shadow-sm"
             >
-              <Bot className="h-3.5 w-3.5 text-[#bc8cff]" />
-              <span className="font-semibold text-[#bc8cff] hidden sm:inline">
-                {AI_PROVIDERS[aiConfig.provider]?.shortName || 'Qwen 1.5'}
-              </span>
-              <Sliders className="h-3 w-3 text-[#8b949e]" />
+              <Bot className="h-4 w-4 text-[#bc8cff]" />
             </button>
-          </div>
-        </div>
 
-        {/* Real-time In-Editor Search & Replace Toolbar */}
-        {isSearchOpen && (
-          <div className="bg-[#161b22] border-b border-[#30363d] px-3 py-2 flex flex-col gap-1.5 animate-in slide-in-from-top-2 duration-100 shadow-md">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <Search className="h-3.5 w-3.5 text-[#58a6ff] shrink-0" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setCurrentMatchIndex(0);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (e.shiftKey) handlePrevMatch();
-                      else handleNextMatch();
-                    } else if (e.key === 'Escape') {
-                      setIsSearchOpen(false);
-                    }
-                  }}
-                  placeholder="Search code (e.g. function, class, variable)..."
-                  className="bg-[#0d1117] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs font-mono text-[#f0f6fc] placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff] flex-1 max-w-sm"
-                />
-
-                {/* Match Counter */}
-                <span className="text-[11px] font-mono text-[#8b949e] px-1.5 whitespace-nowrap">
-                  {searchQuery ? `${totalMatches === 0 ? '0' : currentMatchIndex + 1} of ${totalMatches}` : 'No search'}
-                </span>
-
-                {/* Prev / Next Buttons */}
-                <div className="flex items-center gap-0.5">
-                  <button
-                    onClick={handlePrevMatch}
-                    disabled={totalMatches === 0}
-                    title="Previous Match (Shift+Enter)"
-                    className="p-1 rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] disabled:opacity-40"
-                  >
-                    <ChevronUp className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={handleNextMatch}
-                    disabled={totalMatches === 0}
-                    title="Next Match (Enter)"
-                    className="p-1 rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] disabled:opacity-40"
-                  >
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                {/* Case Sensitive Toggle */}
-                <button
-                  onClick={() => setIsMatchCase((prev) => !prev)}
-                  title="Match Case"
-                  className={`p-1 rounded text-xs font-mono border ${
-                    isMatchCase
-                      ? 'bg-[#1f6feb]/20 text-[#58a6ff] border-[#1f6feb]'
-                      : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
-                  }`}
-                >
-                  <CaseSensitive className="h-3.5 w-3.5" />
-                </button>
-
-                {/* Toggle Replace in Sandbox */}
-                {workspaceScope === 'sandbox' && (
-                  <button
-                    onClick={() => setShowReplace((prev) => !prev)}
-                    title="Toggle Replace"
-                    className={`p-1 px-1.5 rounded text-[11px] font-mono flex items-center gap-1 border ${
-                      showReplace
-                        ? 'bg-[#238636]/20 text-[#3fb950] border-[#238636]'
-                        : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
-                    }`}
-                  >
-                    <Replace className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Replace</span>
-                  </button>
-                )}
-              </div>
-
+            {/* 10. Recent Files Flyout History */}
+            <div className="relative" ref={recentDropdownRef}>
               <button
-                onClick={() => setIsSearchOpen(false)}
-                title="Close Search (Esc)"
-                className="p-1 rounded-lg text-[#8b949e] hover:text-white hover:bg-[#21262d]"
+                onClick={() => setIsRecentDropdownOpen((prev) => !prev)}
+                title={`Recent Files History (${recentFilePaths.length})`}
+                className={`p-2 rounded-xl border text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm ${
+                  isRecentDropdownOpen
+                    ? 'bg-[#58a6ff]/20 text-[#58a6ff] border-[#58a6ff]/50'
+                    : 'bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-[#c9d1d9] border-[#30363d]'
+                }`}
               >
-                <X className="h-4 w-4" />
+                <History className="h-4 w-4" />
               </button>
+
+              {/* Flyout Menu for Recent Files on Right */}
+              {isRecentDropdownOpen && (
+                <div className="absolute left-full top-0 ml-1.5 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="flex items-center justify-between px-2 py-1 border-b border-[#30363d] mb-1">
+                    <span className="text-[10px] font-bold text-[#8b949e] uppercase tracking-wider flex items-center gap-1">
+                      <Clock className="h-3 w-3 text-[#58a6ff]" /> Recent Files
+                    </span>
+                    {recentFilePaths.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setRecentFilePaths([]);
+                          try {
+                            localStorage.removeItem('umakraft_recent_files');
+                          } catch {}
+                        }}
+                        className="text-[10px] text-[#8b949e] hover:text-[#f85149] transition-colors flex items-center gap-0.5"
+                        title="Clear recent list"
+                      >
+                        <Trash2 className="h-2.5 w-2.5" />
+                        <span>Clear</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {recentFilePaths.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-[#8b949e] italic">
+                      No recent files yet
+                    </div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto space-y-0.5 scrollbar-thin">
+                      {recentFilePaths.map((path) => {
+                        const fileObj = sandboxFiles.find((f) => f.path === path);
+
+                        const displayName = fileObj ? fileObj.name : path.split('/').pop() || path;
+                        const meta = getFileVisualInfo(displayName, fileObj?.language);
+                        const isCurrent = currentFile?.path === path;
+
+                        return (
+                          <button
+                            key={path}
+                            onClick={() => {
+                              if (fileObj) {
+                                handleSelectFileWithToast(fileObj);
+                              } else {
+                                setSelectedFilePath(path);
+                              }
+                              setIsRecentDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-mono text-left transition-colors ${
+                              isCurrent
+                                ? 'bg-[#1f6feb]/20 text-[#58a6ff] font-bold'
+                                : 'text-[#c9d1d9] hover:bg-[#21262d] hover:text-white'
+                            }`}
+                          >
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 border ${meta.bgColor} ${meta.borderColor} ${meta.color}`}
+                            >
+                              {meta.extLabel}
+                            </span>
+                            <div className="truncate flex-1 min-w-0">
+                              <div className="truncate font-semibold">{displayName}</div>
+                              <div className="text-[9px] text-[#8b949e] truncate">{path}</div>
+                            </div>
+                            {isCurrent && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-[#1f6feb] text-white">
+                                Active
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Replace Input Row */}
-            {showReplace && workspaceScope === 'sandbox' && (
-              <div className="flex items-center gap-1.5 pt-1 border-t border-[#21262d]">
-                <Replace className="h-3.5 w-3.5 text-[#3fb950] shrink-0" />
-                <input
-                  type="text"
-                  value={replaceQuery}
-                  onChange={(e) => setReplaceQuery(e.target.value)}
-                  placeholder="Replace with..."
-                  className="bg-[#0d1117] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs font-mono text-[#f0f6fc] placeholder-[#484f58] focus:outline-none focus:border-[#3fb950] flex-1 max-w-sm"
-                />
-                <button
-                  onClick={handleReplaceOne}
-                  disabled={totalMatches === 0}
-                  className="px-2 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-xs font-mono text-[#c9d1d9] hover:text-white border border-[#30363d] disabled:opacity-40"
-                >
-                  Replace
-                </button>
-                <button
-                  onClick={handleReplaceAll}
-                  disabled={totalMatches === 0}
-                  className="px-2 py-1 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-xs font-mono text-white font-semibold disabled:opacity-40 shadow-sm"
-                >
-                  Replace All
-                </button>
-              </div>
+            {/* 11. Load Demo Sample Files */}
+            {onLoadSampleSandbox && (
+              <button
+                onClick={onLoadSampleSandbox}
+                title="Load Sample Demo Files"
+                className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#79c0ff] hover:text-white border border-[#30363d] text-xs flex items-center justify-center transition-all active:scale-95"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
             )}
-          </div>
-        )}
 
-        {/* Secondary Info Ribbon: Scope, Visual Extension Badge, File Path & Auto-Save Indicator */}
-        <div className="px-3 py-1.5 bg-[#0d1117] border-b border-[#21262d] flex items-center justify-between gap-2 text-[11px] font-mono text-[#8b949e]">
-          <div className="flex items-center gap-1.5 truncate">
-            <span
-              className={`px-1.5 py-0.2 rounded font-bold text-[9px] ${
-                workspaceScope === 'sandbox'
-                  ? 'bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30'
-                  : 'bg-[#238636]/20 text-[#3fb950] border border-[#238636]/30'
+            {/* 12. Tab View Mode Toggle */}
+            <button
+              onClick={() => {
+                const nextMode = tabViewMode === 'icon_only' ? 'full' : 'icon_only';
+                setTabViewMode(nextMode);
+                try {
+                  localStorage.setItem('umakraft_tab_mode', nextMode);
+                } catch {}
+              }}
+              title={
+                tabViewMode === 'icon_only'
+                  ? 'Currently in Icon Tab Mode. Click to Expand.'
+                  : 'Currently in Expanded Mode. Click for Icon-Only.'
+              }
+              className={`p-2 rounded-xl text-xs flex items-center justify-center border transition-all active:scale-95 ${
+                tabViewMode === 'icon_only'
+                  ? 'bg-[#21262d] text-[#e3b341] border-[#e3b341]/40 hover:bg-[#30363d]'
+                  : 'bg-[#0d1117] text-[#8b949e] border-[#30363d] hover:text-white'
               }`}
             >
-              {workspaceScope === 'sandbox' ? 'USER SANDBOX' : 'APP STORAGE'}
-            </span>
-            {currentFile && (
-              (() => {
-                const meta = getFileVisualInfo(currentFile.name, currentFile.language);
-                return (
-                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${meta.bgColor} ${meta.borderColor} ${meta.color}`}>
-                    {meta.extLabel}
-                  </span>
-                );
-              })()
-            )}
-            <FolderTree className="h-3 w-3 text-[#58a6ff] shrink-0" />
-            <span className="truncate text-[#c9d1d9] font-medium">
-              {currentFile ? currentFile.path : '(empty)'}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2.5 shrink-0">
-            {/* Real-time Auto-Save Status Badge */}
-            {workspaceScope === 'sandbox' ? (
-              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#161b22] border border-[#30363d] text-[10px]">
-                {saveStatus === 'saving' ? (
-                  <>
-                    <span className="h-2 w-2 rounded-full bg-[#e3b341] animate-pulse" />
-                    <span className="text-[#e3b341] font-semibold">Auto-saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-3 w-3 text-[#3fb950]" />
-                    <span className="text-[#3fb950] font-semibold">Auto-Saved</span>
-                    <span className="text-[#8b949e] hidden sm:inline">&bull; {lastSavedTime}</span>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#161b22] border border-[#30363d] text-[10px] text-[#3fb950]">
-                <ShieldCheck className="h-3 w-3" />
-                <span className="font-semibold">System File</span>
-              </div>
-            )}
-
-            {currentFile && (
-              <>
-                <span className="text-[10px] text-[#8b949e] hidden xs:inline">
-                  {lines.length} lines &bull; UTF-8
-                </span>
-                <button
-                  onClick={handleCopyCode}
-                  title="Copy File Content"
-                  className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-white"
-                >
-                  {copiedCode ? <Check className="h-3 w-3 text-[#3fb950]" /> : <Copy className="h-3 w-3" />}
-                </button>
-                <button
-                  onClick={handleDownloadSingleFile}
-                  title="Download File"
-                  className="p-1 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-white"
-                >
-                  <Download className="h-3 w-3" />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Permanent Code Canvas Area */}
-        <div ref={codeViewerRef} className="flex-1 min-h-0 flex flex-col overflow-hidden bg-[#0d1117]">
-          {activeFileList.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-[#8b949e]">
-              <Code2 className="h-10 w-10 text-[#58a6ff]/40 mb-3" />
-              <h3 className="text-sm font-bold text-[#f0f6fc] font-mono">
-                No files in this workspace yet
-              </h3>
-              <p className="text-xs text-[#8b949e] max-w-sm mt-1 mb-4 font-mono">
-                Create a new file, upload code, or switch to App Storage to view internal system files.
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsNewFileModalOpen(true)}
-                  className="px-3.5 py-1.5 rounded-xl bg-[#1f6feb] hover:bg-[#1158c7] text-white text-xs font-semibold transition-all shadow-md"
-                >
-                  + Create First File
-                </button>
-                {onLoadSampleSandbox && (
-                  <button
-                    onClick={onLoadSampleSandbox}
-                    className="px-3.5 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] border border-[#30363d] text-xs font-semibold transition-all"
-                  >
-                    Load Sample Files
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto font-mono text-xs text-[#c9d1d9] leading-relaxed select-text relative">
-              {isEditing ? (
-                <div className="h-full flex">
-                  {/* Line Numbers in Edit Mode */}
-                  <div className="select-none py-3 px-2.5 text-right text-[#484f58] font-mono text-xs border-r border-[#21262d] bg-[#0d1117] flex-shrink-0">
-                    {lines.map((_, i) => (
-                      <div key={i} className="leading-relaxed">
-                        {i + 1}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Textarea Editor with live keystroke auto-save */}
-                  <textarea
-                    ref={textareaRef}
-                    value={editorContent}
-                    onChange={(e) => handleEditorChange(e.target.value)}
-                    className="w-full h-full min-h-full p-3 bg-transparent text-[#f0f6fc] font-mono text-xs focus:outline-none resize-none leading-relaxed"
-                    spellCheck={false}
-                    autoFocus
-                  />
-                </div>
+              {tabViewMode === 'icon_only' ? (
+                <LayoutGrid className="h-4 w-4 text-[#e3b341]" />
               ) : (
-                <div className="flex min-w-full py-2">
-                  {/* Line Numbers & Gutter */}
-                  <div className="select-none px-2.5 text-right text-[#484f58] font-mono text-xs border-r border-[#21262d] bg-[#0d1117] flex-shrink-0">
-                    {lines.map((_, i) => (
-                      <div
-                        key={i}
-                        onClick={() => setActiveLine(i + 1)}
-                        className={`leading-relaxed cursor-pointer transition-colors ${
-                          activeLine === i + 1 ? 'text-[#58a6ff] font-bold' : 'hover:text-[#8b949e]'
-                        }`}
-                      >
-                        {i + 1}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Code Lines with Syntax Highlighting & Search Match Highlights */}
-                  <div className="flex-1 overflow-x-auto px-3 select-text">
-                    {lines.map((line, i) => {
-                      const lineNum = i + 1;
-                      const isMatch = searchQuery && (isMatchCase ? line.includes(searchQuery) : line.toLowerCase().includes(searchQuery.toLowerCase()));
-                      const isCurrentMatchLine = matchedLineIndices[currentMatchIndex] === lineNum;
-                      const isSelected = activeLine === lineNum;
-
-                      return (
-                        <div
-                          key={i}
-                          onClick={() => setActiveLine(lineNum)}
-                          className={`leading-relaxed whitespace-pre font-mono transition-colors rounded px-1 -mx-1 ${
-                            isCurrentMatchLine
-                              ? 'bg-[#1f6feb]/35 text-white ring-1 ring-[#58a6ff]'
-                              : isMatch
-                              ? 'bg-[#d29922]/25 text-white'
-                              : isSelected
-                              ? 'bg-[#1f6feb]/10'
-                              : 'hover:bg-[#21262d]/40'
-                          }`}
-                        >
-                          {renderHighlightedLine(line)}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                <List className="h-4 w-4 text-[#8b949e]" />
               )}
-            </div>
-          )}
-
-          {/* Programmer Soft-Key Symbol Helper Strip */}
-          <div className="bg-[#161b22] border-t border-[#30363d] px-2 py-1 flex items-center gap-1 overflow-x-auto scrollbar-none flex-shrink-0">
-            {['Tab', '{', '}', '(', ')', '[', ']', ':', '"', "'", '=', '>', '<', '_', '/', '$', ';', '#'].map(
-              (sym) => (
-                <button
-                  key={sym}
-                  onClick={() => handleInsertSymbol(sym === 'Tab' ? '  ' : sym)}
-                  className="px-2 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[11px] font-mono text-[#c9d1d9] hover:text-white border border-[#30363d] transition-all active:scale-95 shrink-0"
-                >
-                  {sym}
-                </button>
-              )
-            )}
+            </button>
           </div>
-        </div>
 
-        {/* AI Copilot Drawer Overlay */}
-        {isAiModalOpen && (
-          <div className="absolute inset-0 bg-[#161b22]/98 backdrop-blur-md z-20 flex flex-col p-3 overflow-hidden border border-[#bc8cff]/30 shadow-2xl rounded-2xl animate-in fade-in duration-150">
-            {/* AI Overlay Header */}
-            <div className="flex items-center justify-between pb-2 border-b border-[#30363d] flex-shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="p-1.5 rounded-xl bg-[#1f6feb]/20 border border-[#1f6feb]/40 text-[#58a6ff]">
-                  <Sparkles className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <h4 className="text-xs font-bold text-[#f0f6fc]">Umakraft AI Copilot</h4>
-                    <button
-                      onClick={() => setIsAiSettingsOpen(true)}
-                      className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] flex items-center gap-1 transition-colors"
-                      title="Switch AI Provider or update API Key"
-                    >
-                      <Bot className="h-2.5 w-2.5" />
-                      <span>{AI_PROVIDERS[aiConfig.provider]?.shortName || 'Qwen 1.5 Local'}</span>
-                      <Sliders className="h-2.5 w-2.5 text-[#8b949e]" />
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-[#8b949e] truncate flex items-center gap-1">
-                    <span>Target: {currentFile?.name || 'Workspace'}</span>
-                    <span>&bull;</span>
-                    <span className={workspaceScope === 'sandbox' ? 'text-[#58a6ff] font-semibold' : 'text-[#d29922]'}>
-                      {workspaceScope === 'sandbox' ? 'Sandbox (Editable)' : 'App System (Read-Only)'}
+          {/* MAIN CODE VIEWER & CANVAS CONTAINER (Right of the left icon rail) */}
+          <div ref={codeViewerRef} className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-[#0d1117]">
+            {/* Real-time In-Editor Search & Replace Toolbar */}
+            {isSearchOpen && (
+              <div className="bg-[#161b22] border-b border-[#30363d] px-3 py-2 flex flex-col gap-1.5 animate-in slide-in-from-top-2 duration-100 shadow-md flex-shrink-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <Search className="h-3.5 w-3.5 text-[#58a6ff] shrink-0" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setCurrentMatchIndex(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (e.shiftKey) handlePrevMatch();
+                          else handleNextMatch();
+                        } else if (e.key === 'Escape') {
+                          setIsSearchOpen(false);
+                        }
+                      }}
+                      placeholder="Search code (e.g. function, class, variable)..."
+                      className="bg-[#0d1117] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs font-mono text-[#f0f6fc] placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff] flex-1 max-w-sm"
+                    />
+
+                    {/* Match Counter */}
+                    <span className="text-[11px] font-mono text-[#8b949e] px-1.5 whitespace-nowrap">
+                      {searchQuery ? `${totalMatches === 0 ? '0' : currentMatchIndex + 1} of ${totalMatches}` : 'No search'}
                     </span>
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setIsAiSettingsOpen(true)}
-                  title="Configure AI Provider & API Keys"
-                  className="p-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] min-h-[32px] min-w-[32px] flex items-center justify-center border border-[#30363d]"
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => {
-                    if (onCloseAiModal) onCloseAiModal();
-                  }}
-                  title="Close Copilot Panel"
-                  className="p-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-white min-h-[32px] min-w-[32px] flex items-center justify-center border border-[#30363d]"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Action Prompt Chips (Code Checking, Camera Vision & Debugging) */}
-            <div className="flex items-center gap-1.5 py-2 overflow-x-auto scrollbar-none flex-shrink-0">
-              <button
-                onClick={() => setIsCameraScannerOpen(true)}
-                disabled={isAiLoading}
-                className="px-2.5 py-1 rounded-xl bg-[#58a6ff]/15 hover:bg-[#58a6ff]/25 text-[10px] font-mono text-[#58a6ff] hover:text-white border border-[#58a6ff]/40 shrink-0 active:scale-95 disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm"
-              >
-                <Camera className="h-3 w-3 text-[#58a6ff]" />
-                📷 Scan Code Photo
-              </button>
-              <button
-                onClick={() => handleSendAiPrompt("Check this code thoroughly. Tell me what's wrong, why it's an issue, how it should be done correctly, and provide the fully fixed code.")}
-                disabled={isAiLoading}
-                className="px-2.5 py-1 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[10px] font-mono text-[#e3b341] hover:text-[#f0e6c8] border border-[#e3b341]/40 shrink-0 active:scale-95 disabled:opacity-50 flex items-center gap-1 font-bold shadow-sm"
-              >
-                <ShieldCheck className="h-3 w-3 text-[#e3b341]" />
-                🔍 Check Code & Fix
-              </button>
-              <button
-                onClick={() => handleSendAiPrompt("Review this code for Android 10+ (API 29-34) Scoped Storage compliance, main thread blocking, and memory leaks. Explain what's wrong and how to fix.")}
-                disabled={isAiLoading}
-                className="px-2.5 py-1 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[10px] font-mono text-[#3fb950] border border-[#30363d] shrink-0 active:scale-95 disabled:opacity-50 flex items-center gap-1"
-              >
-                ⚡ Android 10+ Audit
-              </button>
-              <button
-                onClick={() => handleSendAiPrompt('Search and explain all functions, classes, and logic in this file.')}
-                disabled={isAiLoading}
-                className="px-2.5 py-1 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[10px] font-mono text-[#58a6ff] border border-[#30363d] shrink-0 active:scale-95 disabled:opacity-50 flex items-center gap-1"
-              >
-                <Search className="h-3 w-3" />
-                AI Code Search
-              </button>
-              <button
-                onClick={() => handleSendAiPrompt('Refactor and optimize this file for maximum execution speed, clean architecture, and thread safety.')}
-                disabled={isAiLoading}
-                className="px-2.5 py-1 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[10px] font-mono text-[#ffa657] border border-[#30363d] shrink-0 active:scale-95 disabled:opacity-50"
-              >
-                🚀 Optimize
-              </button>
-              <button
-                onClick={() => handleSendAiPrompt('Explain line by line what this code does in clear detail.')}
-                disabled={isAiLoading}
-                className="px-2.5 py-1 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[10px] font-mono text-[#d2a8ff] border border-[#30363d] shrink-0 active:scale-95 disabled:opacity-50"
-              >
-                📖 Explain
-              </button>
-            </div>
-
-            {/* Messages Chat Scroll Area */}
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 p-1 font-mono text-xs select-text">
-              {messages.map((msg) => {
-                const isDiagnostic = msg.text.includes("What's Wrong") || msg.text.includes("Identified");
-                return (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${
-                      msg.sender === 'user' ? 'items-end' : 'items-start'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1 mb-1 text-[10px] text-[#8b949e]">
-                      <span>{msg.sender === 'user' ? 'You' : msg.providerBadge || 'AI Copilot'}</span>
-                      <span>&bull;</span>
-                      <span>{msg.timestamp}</span>
-                      {isDiagnostic && msg.sender === 'ai' && (
-                        <span className="ml-1 px-1.5 py-0.2 rounded-full bg-[#e3b341]/20 text-[#e3b341] border border-[#e3b341]/30 text-[9px] font-bold">
-                          Code Diagnosis & Fix
-                        </span>
-                      )}
+                    {/* Prev / Next Buttons */}
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={handlePrevMatch}
+                        disabled={totalMatches === 0}
+                        title="Previous Match (Shift+Enter)"
+                        className="p-1 rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] disabled:opacity-40"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={handleNextMatch}
+                        disabled={totalMatches === 0}
+                        title="Next Match (Enter)"
+                        className="p-1 rounded bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] disabled:opacity-40"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </button>
                     </div>
 
-                    <div
-                      className={`max-w-[94%] p-3 rounded-2xl ${
-                        msg.sender === 'user'
-                          ? 'bg-[#1f6feb] text-white rounded-tr-sm'
-                          : 'bg-[#0d1117] border border-[#30363d] text-[#c9d1d9] rounded-tl-sm shadow-md'
+                    {/* Case Sensitive Toggle */}
+                    <button
+                      onClick={() => setIsMatchCase((prev) => !prev)}
+                      title="Match Case"
+                      className={`p-1 rounded text-xs font-mono border ${
+                        isMatchCase
+                          ? 'bg-[#1f6feb]/20 text-[#58a6ff] border-[#1f6feb]'
+                          : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
                       }`}
                     >
-                      <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                      <CaseSensitive className="h-3.5 w-3.5" />
+                    </button>
 
-                      {msg.codeSnippet && (
-                        <div className="mt-2.5 pt-2 border-t border-[#30363d]">
-                          <div className="flex items-center justify-between pb-1.5 text-[10px] text-[#8b949e]">
-                            <span className="font-semibold text-[#f0f6fc]">Suggested Code Patch:</span>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(msg.codeSnippet!);
-                                  confetti({ particleCount: 15, spread: 30 });
-                                }}
-                                className="px-2 py-0.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white font-semibold text-[10px] flex items-center gap-1 border border-[#30363d] transition-all"
-                                title="Copy code snippet to clipboard"
-                              >
-                                <Copy className="h-3 w-3" />
-                                <span>Copy</span>
-                              </button>
-                              <button
-                                onClick={() => handleApplySuggestedCode(msg.codeSnippet!)}
-                                className="px-2 py-0.5 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-white font-bold text-[10px] flex items-center gap-1 active:scale-95 transition-all shadow"
-                                title="Apply patch directly into active file & auto-save"
-                              >
-                                <Check className="h-3 w-3" />
-                                <span>Apply & Auto-Save</span>
-                              </button>
-                            </div>
+                    {/* Toggle Replace */}
+                    <button
+                      onClick={() => setShowReplace((prev) => !prev)}
+                      title="Toggle Replace"
+                      className={`p-1 px-1.5 rounded text-[11px] font-mono flex items-center gap-1 border ${
+                        showReplace
+                          ? 'bg-[#238636]/20 text-[#3fb950] border-[#238636]'
+                          : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
+                      }`}
+                    >
+                      <Replace className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Replace</span>
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setIsSearchOpen(false)}
+                    title="Close Search (Esc)"
+                    className="p-1 rounded-lg text-[#8b949e] hover:text-white hover:bg-[#21262d]"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Replace Input Row */}
+                {showReplace && (
+                  <div className="flex items-center gap-1.5 pt-1 border-t border-[#21262d]">
+                    <Replace className="h-3.5 w-3.5 text-[#3fb950] shrink-0" />
+                    <input
+                      type="text"
+                      value={replaceQuery}
+                      onChange={(e) => setReplaceQuery(e.target.value)}
+                      placeholder="Replace with..."
+                      className="bg-[#0d1117] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs font-mono text-[#f0f6fc] placeholder-[#484f58] focus:outline-none focus:border-[#3fb950] flex-1 max-w-sm"
+                    />
+                    <button
+                      onClick={handleReplaceOne}
+                      disabled={totalMatches === 0}
+                      className="px-2 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-xs font-mono text-[#c9d1d9] hover:text-white border border-[#30363d] disabled:opacity-40"
+                    >
+                      Replace
+                    </button>
+                    <button
+                      onClick={handleReplaceAll}
+                      disabled={totalMatches === 0}
+                      className="px-2 py-1 rounded-lg bg-[#238636] hover:bg-[#2ea043] text-xs font-mono text-white font-semibold disabled:opacity-40 shadow-sm"
+                    >
+                      Replace All
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Breadcrumb Info Strip with Markdown & Code View Mode Switcher */}
+            <div className="px-3 py-1.5 bg-[#0d1117] border-b border-[#21262d] flex items-center justify-between gap-2 text-[11px] font-mono text-[#8b949e] flex-shrink-0">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="px-1.5 py-0.2 rounded font-bold text-[9px] bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30">
+                  WORKSPACE
+                </span>
+                {currentFile && (
+                  (() => {
+                    const meta = getFileVisualInfo(currentFile.name, currentFile.language);
+                    return (
+                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${meta.bgColor} ${meta.borderColor} ${meta.color}`}>
+                        {meta.extLabel}
+                      </span>
+                    );
+                  })()
+                )}
+                <FolderTree className="h-3 w-3 text-[#58a6ff] shrink-0" />
+                <span className="truncate text-[#c9d1d9] font-medium">
+                  {currentFile ? currentFile.path : '(empty)'}
+                </span>
+              </div>
+
+              {/* Center / Right Controls: Markdown View Mode Switcher & Stats */}
+              <div className="flex items-center gap-2 shrink-0">
+                {currentFile && (
+                  <div className="flex items-center bg-[#161b22] p-0.5 rounded-lg border border-[#30363d]">
+                    <button
+                      onClick={() => setEditorViewMode('code')}
+                      title="Raw Code / Line Editor View"
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono flex items-center gap-1 transition-all ${
+                        editorViewMode === 'code'
+                          ? 'bg-[#1f6feb] text-white font-bold shadow-sm'
+                          : 'text-[#8b949e] hover:text-[#c9d1d9]'
+                      }`}
+                    >
+                      <Code2 className="h-3 w-3" />
+                      <span>Code</span>
+                    </button>
+                    <button
+                      onClick={() => setEditorViewMode('preview')}
+                      title="Rendered Markdown Preview (GFM & Styled)"
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono flex items-center gap-1 transition-all ${
+                        editorViewMode === 'preview'
+                          ? 'bg-[#1f6feb] text-white font-bold shadow-sm'
+                          : 'text-[#8b949e] hover:text-[#c9d1d9]'
+                      }`}
+                    >
+                      <BookOpen className="h-3 w-3 text-[#79c0ff]" />
+                      <span>Markdown Preview</span>
+                    </button>
+                    <button
+                      onClick={() => setEditorViewMode('split')}
+                      title="Side-by-Side: Code Editor + Live Markdown Preview"
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono hidden sm:flex items-center gap-1 transition-all ${
+                        editorViewMode === 'split'
+                          ? 'bg-[#1f6feb] text-white font-bold shadow-sm'
+                          : 'text-[#8b949e] hover:text-[#c9d1d9]'
+                      }`}
+                    >
+                      <Columns2 className="h-3 w-3" />
+                      <span>Split</span>
+                    </button>
+                  </div>
+                )}
+
+                {currentFile && (
+                  <span className="text-[10px] text-[#8b949e] shrink-0 font-mono hidden md:inline">
+                    {lines.length} lines &bull; UTF-8
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Permanent Code Canvas Area */}
+            {activeFileList.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-[#8b949e]">
+                <Code2 className="h-10 w-10 text-[#58a6ff]/40 mb-3" />
+                <h3 className="text-sm font-bold text-[#f0f6fc] font-mono">
+                  No files in this workspace yet
+                </h3>
+                <p className="text-xs text-[#8b949e] max-w-sm mt-1 mb-4 font-mono">
+                  Create a new file or upload code to start developing in your workspace.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsNewFileModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#1f6feb] hover:bg-[#1158c7] text-white text-xs font-semibold transition-all shadow-md"
+                  >
+                    + Create First File
+                  </button>
+                  {onLoadSampleSandbox && (
+                    <button
+                      onClick={onLoadSampleSandbox}
+                      className="px-3.5 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] border border-[#30363d] text-xs font-semibold transition-all"
+                    >
+                      Load Sample Files
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : editorViewMode === 'preview' ? (
+              /* Full Rendered Markdown Preview View */
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                <MarkdownPreview content={editorContent} fileName={currentFile?.name} />
+              </div>
+            ) : editorViewMode === 'split' ? (
+              /* Side-by-Side Split View: Code on Left, Live Markdown Preview on Right */
+              <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[#30363d] overflow-hidden">
+                {/* Left: Code Editor */}
+                <div className="min-h-0 overflow-y-auto overflow-x-auto font-mono text-xs text-[#c9d1d9] leading-relaxed select-text relative flex flex-col bg-[#0d1117]">
+                  <div className="bg-[#161b22] px-3 py-1.5 border-b border-[#30363d] flex items-center justify-between text-[11px] text-[#8b949e]">
+                    <span className="font-semibold text-white flex items-center gap-1.5">
+                      <Code2 className="h-3.5 w-3.5 text-[#58a6ff]" />
+                      <span>Code Source</span>
+                    </span>
+                    <span className="text-[10px] text-[#3fb950] font-bold">Live Synced</span>
+                  </div>
+                  {isEditing ? (
+                    <div className="h-full flex flex-1">
+                      <div className="select-none py-3 px-2 text-right text-[#484f58] font-mono text-xs border-r border-[#21262d] bg-[#0d1117] flex-shrink-0">
+                        {lines.map((_, i) => (
+                          <div key={i} className="leading-relaxed">
+                            {i + 1}
                           </div>
-                          <pre className="p-2.5 bg-[#161b22] border border-[#30363d] rounded-xl overflow-x-auto text-[11px] text-[#79c0ff]">
-                            <code>{msg.codeSnippet}</code>
-                          </pre>
+                        ))}
+                      </div>
+                      <textarea
+                        ref={textareaRef}
+                        value={editorContent}
+                        onChange={(e) => handleEditorChange(e.target.value)}
+                        className="w-full h-full min-h-full p-3 bg-transparent text-[#f0f6fc] font-mono text-xs focus:outline-none resize-none leading-relaxed"
+                        spellCheck={false}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex min-w-full py-2 flex-1">
+                      <div className="select-none px-2 text-right text-[#484f58] font-mono text-xs border-r border-[#21262d] bg-[#0d1117] flex-shrink-0">
+                        {lines.map((_, i) => (
+                          <div key={i} className="leading-relaxed">
+                            {i + 1}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex-1 overflow-x-auto px-3 select-text">
+                        {lines.map((line, i) => (
+                          <div key={i} className="leading-relaxed whitespace-pre font-mono">
+                            {renderHighlightedLine(line)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Rendered Markdown View */}
+                <div className="min-h-0 overflow-hidden flex flex-col bg-[#0d1117]">
+                  <MarkdownPreview content={editorContent} fileName={currentFile?.name} />
+                </div>
+              </div>
+            ) : (
+              /* Standard Code Canvas View */
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto font-mono text-xs text-[#c9d1d9] leading-relaxed select-text relative">
+                {isEditing ? (
+                  <div className="h-full flex">
+                    {/* Line Numbers in Edit Mode */}
+                    <div className="select-none py-3 px-2.5 text-right text-[#484f58] font-mono text-xs border-r border-[#21262d] bg-[#0d1117] flex-shrink-0">
+                      {lines.map((_, i) => (
+                        <div key={i} className="leading-relaxed">
+                          {i + 1}
                         </div>
-                      )}
+                      ))}
+                    </div>
+
+                    {/* Textarea Editor with live keystroke auto-save */}
+                    <textarea
+                      ref={textareaRef}
+                      value={editorContent}
+                      onChange={(e) => handleEditorChange(e.target.value)}
+                      className="w-full h-full min-h-full p-3 bg-transparent text-[#f0f6fc] font-mono text-xs focus:outline-none resize-none leading-relaxed"
+                      spellCheck={false}
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <div className="flex min-w-full py-2">
+                    {/* Line Numbers & Gutter */}
+                    <div className="select-none px-2.5 text-right text-[#484f58] font-mono text-xs border-r border-[#21262d] bg-[#0d1117] flex-shrink-0">
+                      {lines.map((_, i) => (
+                        <div
+                          key={i}
+                          onClick={() => setActiveLine(i + 1)}
+                          className={`leading-relaxed cursor-pointer transition-colors ${
+                            activeLine === i + 1 ? 'text-[#58a6ff] font-bold' : 'hover:text-[#8b949e]'
+                          }`}
+                        >
+                          {i + 1}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Code Lines with Syntax Highlighting & Search Match Highlights */}
+                    <div className="flex-1 overflow-x-auto px-3 select-text">
+                      {lines.map((line, i) => {
+                        const lineNum = i + 1;
+                        const isMatch = searchQuery && (isMatchCase ? line.includes(searchQuery) : line.toLowerCase().includes(searchQuery.toLowerCase()));
+                        const isCurrentMatchLine = matchedLineIndices[currentMatchIndex] === lineNum;
+                        const isSelected = activeLine === lineNum;
+
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => setActiveLine(lineNum)}
+                            className={`leading-relaxed whitespace-pre font-mono transition-colors rounded px-1 -mx-1 ${
+                              isCurrentMatchLine
+                                ? 'bg-[#1f6feb]/35 text-white ring-1 ring-[#58a6ff]'
+                                : isMatch
+                                ? 'bg-[#d29922]/25 text-white'
+                                : isSelected
+                                ? 'bg-[#1f6feb]/10'
+                                : 'hover:bg-[#21262d]/40'
+                            }`}
+                          >
+                            {renderHighlightedLine(line)}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                );
-              })}
+                )}
+              </div>
+            )}
 
-              {isAiLoading && (
-                <div className="flex items-center gap-2 p-3 rounded-2xl bg-[#0d1117] border border-[#30363d] text-[#58a6ff] w-fit">
-                  <Sparkles className="h-4 w-4 animate-spin" />
-                  <span className="text-xs">
-                    {AI_PROVIDERS[aiConfig.provider]?.shortName || 'Local AI'} is thinking...
-                  </span>
-                </div>
+            {/* Programmer Soft-Key Symbol Helper Strip */}
+            <div className="bg-[#161b22] border-t border-[#30363d] px-2 py-1 flex items-center gap-1 overflow-x-auto scrollbar-none flex-shrink-0">
+              {['Tab', '{', '}', '(', ')', '[', ']', ':', '"', "'", '=', '>', '<', '_', '/', '$', ';', '#'].map(
+                (sym) => (
+                  <button
+                    key={sym}
+                    onClick={() => handleInsertSymbol(sym === 'Tab' ? '  ' : sym)}
+                    className="px-2 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[11px] font-mono text-[#c9d1d9] hover:text-white border border-[#30363d] transition-all active:scale-95 shrink-0"
+                  >
+                    {sym}
+                  </button>
+                )
               )}
             </div>
-
-            {/* Prompt Input Box */}
-            <div className="pt-2 border-t border-[#30363d] flex-shrink-0 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsCameraScannerOpen(true)}
-                title="Scan Code with Camera or Upload Photo"
-                className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] border border-[#30363d] transition-all active:scale-95 flex items-center justify-center shrink-0 min-h-[36px] min-w-[36px]"
-              >
-                <Camera className="h-4 w-4" />
-              </button>
-              <input
-                type="text"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendAiPrompt();
-                  }
-                }}
-                placeholder={`Ask ${AI_PROVIDERS[aiConfig.provider]?.shortName || 'AI'} to search, edit, or explain...`}
-                disabled={isAiLoading}
-                className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs font-mono text-[#f0f6fc] placeholder-[#484f58] focus:outline-none focus:border-[#bc8cff]"
-              />
-              <button
-                onClick={() => handleSendAiPrompt()}
-                disabled={!prompt.trim() || isAiLoading}
-                className="p-2 px-3 rounded-xl bg-[#bc8cff] hover:bg-[#a371f7] text-white disabled:opacity-40 transition-all font-semibold active:scale-95 shadow-md flex items-center gap-1"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span className="text-xs font-bold">Ask</span>
-              </button>
-            </div>
           </div>
-        )}
+        </div>
+
+        {/* AI Copilot Drawer Overlay - Redesigned Modern Component */}
+        <UmakraftAiCopilotPanel
+          isOpen={isAiModalOpen}
+          onClose={() => {
+            if (onCloseAiModal) onCloseAiModal();
+          }}
+          currentFile={currentFile}
+          allFiles={sandboxFiles}
+          onSelectSnippetFile={(path) => {
+            setSelectedFilePath(path);
+          }}
+          workspaceScope="sandbox"
+          messages={messages}
+          onSendMessage={(customPrompt, img, useWebSearch) => handleSendAiPrompt(customPrompt, img, useWebSearch)}
+          isAiLoading={isAiLoading}
+          aiConfig={aiConfig}
+          onOpenAiSettings={() => setIsAiSettingsOpen(true)}
+          onApplyCode={(code) => handleApplySuggestedCode(code)}
+          onOpenScanner={() => setIsCameraScannerOpen(true)}
+          onOpenWebSearchModal={() => setIsWebDocsSearchOpen(true)}
+          editorContent={editorContent}
+        />
       </div>
 
       {/* Camera & Image AI Code Scanner Modal */}
@@ -1899,6 +1770,16 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         onAnalyzeImage={async (image, customPromptText) => {
           if (onOpenAiModal) onOpenAiModal();
           await handleSendAiPrompt(customPromptText, image);
+        }}
+      />
+
+      {/* Web Docs Search Explorer Modal */}
+      <WebDocsSearchModal
+        isOpen={isWebDocsSearchOpen}
+        onClose={() => setIsWebDocsSearchOpen(false)}
+        onApplyCodeSnippet={(code) => {
+          handleApplySuggestedCode(code);
+          setIsWebDocsSearchOpen(false);
         }}
       />
 

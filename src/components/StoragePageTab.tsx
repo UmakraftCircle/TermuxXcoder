@@ -1,34 +1,38 @@
 import React, { useState, useMemo } from 'react';
 import {
-  FolderTree,
+  Folder,
+  FolderOpen,
   FileCode,
   Download,
   Search,
-  Folder,
-  FolderOpen,
   Cpu,
   Code2,
   ChevronRight,
-  ChevronDown,
   FileText,
   Layers,
-  Maximize2,
-  Minimize2,
-  Sparkles,
   ShieldCheck,
   Lock,
   Unlock,
-  KeyRound,
   HardDrive,
-  CheckCircle2,
-  AlertTriangle,
-  X,
   Copy,
   Check,
   Eye,
   Terminal,
   FileBox,
-  Boxes
+  Boxes,
+  ArrowLeft,
+  LayoutGrid,
+  List,
+  Sparkles,
+  Smartphone,
+  FolderPlus,
+  ArrowUp,
+  FileCode2,
+  ExternalLink,
+  Zap,
+  Clock,
+  ShieldAlert,
+  X
 } from 'lucide-react';
 import { ProjectFile } from '../types';
 import { exportProjectToZip, downloadBlob } from '../utils/zipExporter';
@@ -42,66 +46,252 @@ interface StoragePageTabProps {
   onOpenTerminal?: () => void;
 }
 
-interface TreeNode {
+interface FileSystemItem {
   id: string;
   name: string;
   path: string;
   isFolder: boolean;
-  children: TreeNode[];
+  itemCount?: number;
+  sizeBytes?: number;
+  formattedSize?: string;
   projectFile?: ProjectFile;
-  size?: string;
-  permissions?: string;
+  category?: 'code' | 'ndk' | 'workflow' | 'config' | 'doc' | 'other';
   isEncrypted?: boolean;
-  isReadOnly?: boolean;
-  checksum?: string;
+  isSandbox?: boolean;
+  extension?: string;
 }
 
 export const StoragePageTab: React.FC<StoragePageTabProps> = ({
   files: appFiles,
   sandboxFiles = [],
-  onSelectFile
+  onSelectFile,
+  onOpenTerminal
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeStorageView, setActiveStorageView] = useState<'all' | 'app' | 'vault' | 'sandbox'>('all');
+  const [activeStorageCategory, setActiveStorageCategory] = useState<'all' | 'sandbox' | 'system' | 'vault'>('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortBy, setSortBy] = useState<'name' | 'size' | 'type'>('name');
   const [isLockEnforced, setIsLockEnforced] = useState<boolean>(
     AppEncryptedStorageService.isVaultWriteLocked()
   );
 
-  // Inspector Modal for any clicked file
+  // Current folder drill-down path (e.g. [] is root 'workspace', ['src'], ['src', 'main'])
+  const [currentFolderSegments, setCurrentFolderSegments] = useState<string[]>([]);
+
+  // Inspected File Modal
   const [inspectedFile, setInspectedFile] = useState<ProjectFile | null>(null);
   const [copiedInspect, setCopiedInspect] = useState(false);
-
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
-    'workspace': true,
-    'workspace/.github': true,
-    'workspace/.github/workflows': true,
-    'workspace/src': true,
-    'workspace/src/main': true,
-    'workspace/src/main/ai': true,
-    'workspace/src/main/common': false,
-    'workspace/src/main/debugger': false,
-    'workspace/src/main/editor': true,
-    'workspace/src/main/filesystem': false,
-    'workspace/src/main/git': false,
-    'workspace/src/main/lsp': false,
-    'workspace/src/main/pty': true,
-    'workspace/src/main/terminal': false,
-    'workspace/sandbox': true
-  });
-
   const [isExporting, setIsExporting] = useState(false);
 
-  // Combine files for unified storage view
+  // Storage files strictly isolated to user sandbox files to prevent modification/deletion of system code
   const allStorageFiles = useMemo(() => {
-    const taggedAppFiles = appFiles.map((f) => ({
-      ...f,
-      origin: f.origin || ('app_system' as const),
-      storageScope: f.isEncrypted ? ('app_internal_vault' as const) : ('app_system_storage' as const)
-    }));
-    return [...taggedAppFiles, ...sandboxFiles];
-  }, [appFiles, sandboxFiles]);
+    return sandboxFiles;
+  }, [sandboxFiles]);
 
-  // Toggle Immutable Write-Lock on system files
+  // Calculate storage sizes and breakdown
+  const storageStats = useMemo(() => {
+    let totalBytes = 0;
+    let kotlinBytes = 0;
+    let layoutBytes = 0;
+    let configBytes = 0;
+    let otherBytes = 0;
+
+    allStorageFiles.forEach((file) => {
+      const size = file.content ? file.content.length : 0;
+      totalBytes += size;
+
+      if (file.name.endsWith('.kt') || file.name.endsWith('.java')) {
+        kotlinBytes += size;
+      } else if (file.name.endsWith('.xml') || file.name.endsWith('.json')) {
+        layoutBytes += size;
+      } else if (file.name.endsWith('.gradle') || file.name.endsWith('.properties') || file.name.endsWith('.md')) {
+        configBytes += size;
+      } else {
+        otherBytes += size;
+      }
+    });
+
+    const formatKilo = (bytes: number) => {
+      if (bytes < 1024) return `${bytes} B`;
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    };
+
+    return {
+      totalFormatted: formatKilo(totalBytes),
+      totalBytes,
+      kotlinFormatted: formatKilo(kotlinBytes),
+      layoutFormatted: formatKilo(layoutBytes),
+      configFormatted: formatKilo(configBytes),
+      otherFormatted: formatKilo(otherBytes),
+      percentages: {
+        kotlin: totalBytes > 0 ? (kotlinBytes / totalBytes) * 100 : 0,
+        layout: totalBytes > 0 ? (layoutBytes / totalBytes) * 100 : 0,
+        config: totalBytes > 0 ? (configBytes / totalBytes) * 100 : 0,
+        other: totalBytes > 0 ? (otherBytes / totalBytes) * 100 : 0
+      }
+    };
+  }, [allStorageFiles]);
+
+  // Filter files by category
+  const filteredFiles = useMemo(() => {
+    let files = allStorageFiles;
+    if (activeStorageCategory === 'sandbox') {
+      files = files.filter((f) => f.name.endsWith('.kt') || f.name.endsWith('.java'));
+    } else if (activeStorageCategory === 'system') {
+      files = files.filter((f) => f.name.endsWith('.xml') || f.name.endsWith('.json'));
+    } else if (activeStorageCategory === 'vault') {
+      files = files.filter((f) => f.name.endsWith('.gradle') || f.name.endsWith('.md') || f.name.endsWith('.properties'));
+    }
+    return files;
+  }, [allStorageFiles, activeStorageCategory]);
+
+  // Transform files into directory virtual system
+  // Root = "workspace"
+  const directoryMap = useMemo(() => {
+    const folders: Record<string, Set<string>> = {};
+    const filesAtFolder: Record<string, ProjectFile[]> = {};
+
+    filteredFiles.forEach((file) => {
+      let relativePath = file.path;
+      if (!relativePath.startsWith('.github/') && !relativePath.startsWith('sandbox/') && !relativePath.startsWith('src/') && !relativePath.startsWith('app/') && !relativePath.startsWith('core/')) {
+        relativePath = `src/main/${file.module || 'common'}/${file.name}`;
+      }
+
+      const fullSegments = relativePath.split('/').filter(Boolean);
+      const filename = fullSegments[fullSegments.length - 1];
+      const folderPath = fullSegments.slice(0, -1).join('/');
+
+      // Register parent folder and all ancestor folders
+      let currentAcc = '';
+      fullSegments.slice(0, -1).forEach((seg) => {
+        const parent = currentAcc;
+        currentAcc = currentAcc ? `${currentAcc}/${seg}` : seg;
+        if (!folders[parent]) folders[parent] = new Set();
+        folders[parent].add(seg);
+      });
+
+      if (!filesAtFolder[folderPath]) filesAtFolder[folderPath] = [];
+      filesAtFolder[folderPath].push(file);
+    });
+
+    return { folders, filesAtFolder };
+  }, [filteredFiles]);
+
+  // Items in the current opened folder
+  const currentPathString = currentFolderSegments.join('/');
+
+  const currentFolderItems = useMemo(() => {
+    // If search query is active, return flat search results across everything
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const results: FileSystemItem[] = [];
+
+      filteredFiles.forEach((f) => {
+        if (f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q) || (f.module && f.module.toLowerCase().includes(q))) {
+          results.push({
+            id: `search-file-${f.path}`,
+            name: f.name,
+            path: f.path,
+            isFolder: false,
+            sizeBytes: f.content.length,
+            formattedSize: f.content.length < 1024 ? `${f.content.length} B` : `${(f.content.length / 1024).toFixed(1)} KB`,
+            projectFile: f,
+            isEncrypted: f.isEncrypted,
+            isSandbox: f.isSandbox,
+            extension: f.name.split('.').pop()
+          });
+        }
+      });
+      return results;
+    }
+
+    const items: FileSystemItem[] = [];
+
+    // 1. Folders inside current folder
+    const childFolders = directoryMap.folders[currentPathString] || new Set();
+    childFolders.forEach((folderName) => {
+      const folderFullPath = currentPathString ? `${currentPathString}/${folderName}` : folderName;
+      // Count total files recursively inside this folder
+      let count = 0;
+      filteredFiles.forEach((f) => {
+        let p = f.path;
+        if (!p.startsWith('.github/') && !p.startsWith('sandbox/') && !p.startsWith('src/')) {
+          p = `src/main/${f.module || 'common'}/${f.name}`;
+        }
+        if (p.startsWith(folderFullPath + '/') || p === folderFullPath) {
+          count++;
+        }
+      });
+
+      items.push({
+        id: `folder-${folderFullPath}`,
+        name: folderName,
+        path: folderFullPath,
+        isFolder: true,
+        itemCount: count
+      });
+    });
+
+    // 2. Direct files inside current folder
+    const directFiles = directoryMap.filesAtFolder[currentPathString] || [];
+    directFiles.forEach((file) => {
+      items.push({
+        id: `file-${file.path}`,
+        name: file.name,
+        path: file.path,
+        isFolder: false,
+        sizeBytes: file.content.length,
+        formattedSize: file.content.length < 1024 ? `${file.content.length} B` : `${(file.content.length / 1024).toFixed(1)} KB`,
+        projectFile: file,
+        isEncrypted: file.isEncrypted,
+        isSandbox: file.isSandbox,
+        extension: file.name.split('.').pop()
+      });
+    });
+
+    // Sort items: Folders always first, then apply sort
+    items.sort((a, b) => {
+      if (a.isFolder && !b.isFolder) return -1;
+      if (!a.isFolder && b.isFolder) return 1;
+
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      if (sortBy === 'size') return (b.sizeBytes || 0) - (a.sizeBytes || 0);
+      if (sortBy === 'type') {
+        const extA = a.extension || '';
+        const extB = b.extension || '';
+        return extA.localeCompare(extB);
+      }
+      return 0;
+    });
+
+    return items;
+  }, [currentPathString, directoryMap, filteredFiles, searchQuery, sortBy]);
+
+  // Navigate into folder
+  const handleOpenFolder = (folderName: string) => {
+    setCurrentFolderSegments((prev) => [...prev, folderName]);
+    setSearchQuery('');
+  };
+
+  // Jump to specific breadcrumb
+  const handleJumpToBreadcrumb = (index: number) => {
+    if (index === -1) {
+      setCurrentFolderSegments([]);
+    } else {
+      setCurrentFolderSegments((prev) => prev.slice(0, index + 1));
+    }
+    setSearchQuery('');
+  };
+
+  // Go Up 1 Level
+  const handleGoUp = () => {
+    if (currentFolderSegments.length > 0) {
+      setCurrentFolderSegments((prev) => prev.slice(0, -1));
+      setSearchQuery('');
+    }
+  };
+
+  // Lock Vault Enclave toggle
   const handleToggleVaultLock = () => {
     const nextState = !isLockEnforced;
     setIsLockEnforced(nextState);
@@ -111,130 +301,12 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
     }
   };
 
-  // Filter workspace project files by tab
-  const filteredProjectFiles = useMemo(() => {
-    if (activeStorageView === 'vault') {
-      return allStorageFiles.filter((f) => f.isEncrypted || f.storageScope === 'app_internal_vault');
-    }
-    if (activeStorageView === 'app') {
-      return allStorageFiles.filter((f) => f.origin === 'app_system' || f.module === 'app' || f.path.startsWith('app/') || f.storageScope === 'app_system_storage');
-    }
-    if (activeStorageView === 'sandbox') {
-      return allStorageFiles.filter((f) => f.isSandbox || f.storageScope === 'sandbox_user' || f.origin === 'upload' || f.origin === 'import' || f.origin === 'user');
-    }
-    return allStorageFiles;
-  }, [allStorageFiles, activeStorageView]);
-
-  // Build hierarchical folder tree
-  const workspaceTree = useMemo(() => {
-    const rootNode: TreeNode = {
-      id: 'workspace',
-      name: 'workspace',
-      path: 'workspace',
-      isFolder: true,
-      children: [],
-      permissions: isLockEnforced ? 'dr-xr-xr-x (chmod 555 [Encrypted])' : 'drwxr-xr-x (chmod 755)'
-    };
-
-    filteredProjectFiles.forEach((file) => {
-      let relativePath = file.path;
-      if (relativePath.startsWith('.github/')) {
-        // keep .github/workflows/...
-      } else if (relativePath.startsWith('sandbox/')) {
-        // keep sandbox/...
-      } else if (!relativePath.startsWith('src/') && !relativePath.startsWith('app/') && !relativePath.startsWith('core/')) {
-        relativePath = `src/main/${file.module || 'common'}/${file.name}`;
-      }
-
-      const cleanPath = `workspace/${relativePath.replace(/^\/+/, '')}`;
-      const parts = cleanPath.split('/');
-
-      let currentNode = rootNode;
-
-      for (let i = 1; i < parts.length; i++) {
-        const part = parts[i];
-        const isLeaf = i === parts.length - 1;
-        const currentPath = parts.slice(0, i + 1).join('/');
-
-        if (isLeaf) {
-          currentNode.children.push({
-            id: currentPath,
-            name: part,
-            path: currentPath,
-            isFolder: false,
-            children: [],
-            projectFile: file,
-            size: `${file.content.length} B`,
-            permissions: file.isReadOnly || isLockEnforced ? '-r--r--r-- (AES-256)' : '-rw-r--r--',
-            isEncrypted: file.isEncrypted || file.storageScope === 'app_internal_vault',
-            isReadOnly: file.isReadOnly || isLockEnforced,
-            checksum: file.checksum || 'sha256:7f8ea9b4c1'
-          });
-        } else {
-          let folderNode = currentNode.children.find(
-            (c) => c.isFolder && c.name === part
-          );
-          if (!folderNode) {
-            folderNode = {
-              id: currentPath,
-              name: part,
-              path: currentPath,
-              isFolder: true,
-              children: [],
-              permissions: 'drwxr-xr-x'
-            };
-            currentNode.children.push(folderNode);
-          }
-          currentNode = folderNode;
-        }
-      }
-    });
-
-    // Sort folders first, then files
-    const sortTree = (node: TreeNode) => {
-      node.children.sort((a, b) => {
-        if (a.isFolder === b.isFolder) {
-          return a.name.localeCompare(b.name);
-        }
-        return a.isFolder ? -1 : 1;
-      });
-      node.children.forEach(sortTree);
-    };
-
-    sortTree(rootNode);
-    return rootNode;
-  }, [filteredProjectFiles, isLockEnforced]);
-
-  const toggleFolder = (path: string) => {
-    setExpandedFolders((prev) => ({
-      ...prev,
-      [path]: !prev[path]
-    }));
-  };
-
-  const expandAllFolders = () => {
-    const allPaths: Record<string, boolean> = {};
-    const collect = (node: TreeNode) => {
-      if (node.isFolder) {
-        allPaths[node.path] = true;
-        node.children.forEach(collect);
-      }
-    };
-    collect(workspaceTree);
-    setExpandedFolders((prev) => ({ ...prev, ...allPaths }));
-  };
-
-  const collapseAllFolders = () => {
-    setExpandedFolders({
-      'workspace': true
-    });
-  };
-
+  // Export full ZIP
   const handleDownloadZip = async () => {
     try {
       setIsExporting(true);
-      const blob = await exportProjectToZip(allStorageFiles, 'Umakraft-Secure-Storage-Archive');
-      downloadBlob(blob, 'Umakraft-Secure-Storage-Archive.zip');
+      const blob = await exportProjectToZip(allStorageFiles, 'Umakraft-Device-Storage');
+      downloadBlob(blob, 'Umakraft-Device-Storage.zip');
       confetti({ particleCount: 50, spread: 60, origin: { y: 0.3 } });
     } catch (e) {
       console.error(e);
@@ -243,258 +315,450 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
     }
   };
 
-  const getFileIcon = (node: TreeNode) => {
-    const name = node.name.toLowerCase();
-    if (name.endsWith('.kt') || name.endsWith('.java')) return <Code2 className="h-4 w-4 text-[#58a6ff]" />;
-    if (name.endsWith('.cpp') || name.endsWith('.h')) return <Cpu className="h-4 w-4 text-[#bc8cff]" />;
-    if (name.endsWith('.yml') || name.endsWith('.yaml')) return <Layers className="h-4 w-4 text-[#e3b341]" />;
-    if (name.endsWith('.json') || name.endsWith('.gradle')) return <FileText className="h-4 w-4 text-[#3fb950]" />;
-    return <FileCode className="h-4 w-4 text-[#8b949e]" />;
-  };
-
-  const handleFileClick = (node: TreeNode) => {
-    if (node.projectFile) {
-      setInspectedFile(node.projectFile);
+  // Icon Helper for file types
+  const getFileBadgeIcon = (name: string) => {
+    const lower = name.toLowerCase();
+    if (lower.endsWith('.kt') || lower.endsWith('.java')) {
+      return { icon: Code2, color: 'text-[#58a6ff]', bg: 'bg-[#1f6feb]/20 border-[#1f6feb]/30', label: 'Kotlin/Java' };
     }
-  };
-
-  // Render tree recursively
-  const renderTreeNode = (node: TreeNode, depth: number = 0) => {
-    const isExpanded = !!expandedFolders[node.path];
-    const matchesSearch =
-      !searchQuery ||
-      node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      node.path.toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (node.isFolder) {
-      return (
-        <div key={node.id} className="select-none">
-          <button
-            onClick={() => toggleFolder(node.path)}
-            className="w-full flex items-center gap-1.5 py-1.5 px-2 rounded-lg text-left text-xs font-mono transition-colors group hover:bg-[#21262d] text-[#c9d1d9]"
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
-          >
-            {isExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-[#8b949e] group-hover:text-[#f0f6fc] shrink-0" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-[#8b949e] group-hover:text-[#f0f6fc] shrink-0" />
-            )}
-
-            {isExpanded ? (
-              <FolderOpen className="h-4 w-4 shrink-0 text-[#58a6ff]" />
-            ) : (
-              <Folder className="h-4 w-4 shrink-0 text-[#58a6ff]" />
-            )}
-
-            <span className="truncate font-semibold text-xs text-[#f0f6fc]">{node.name}</span>
-
-            <span className="ml-auto text-[10px] text-[#8b949e] font-sans px-1.5 py-0.2 rounded bg-black/30 shrink-0">
-              {node.children.length}
-            </span>
-          </button>
-
-          {isExpanded && (
-            <div className="border-l border-[#30363d]/50 ml-3 pl-1">
-              {node.children.map((child) => renderTreeNode(child, depth + 1))}
-            </div>
-          )}
-        </div>
-      );
+    if (lower.endsWith('.cpp') || lower.endsWith('.h') || lower.endsWith('.c')) {
+      return { icon: Cpu, color: 'text-[#bc8cff]', bg: 'bg-[#bc8cff]/20 border-[#bc8cff]/30', label: 'C++ NDK' };
     }
-
-    if (searchQuery && !matchesSearch) return null;
-
-    return (
-      <button
-        key={node.id}
-        onClick={() => handleFileClick(node)}
-        className="w-full flex items-center gap-2 py-2 px-2.5 rounded-xl text-left text-xs font-mono transition-all group text-[#c9d1d9] hover:bg-[#1f6feb]/15 hover:text-[#58a6ff] active:scale-[0.99] border border-transparent hover:border-[#1f6feb]/30"
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        title="Tap to inspect code in Storage Viewer"
-      >
-        <span className="shrink-0 group-hover:scale-110 transition-transform">{getFileIcon(node)}</span>
-        <span className="truncate text-xs font-medium text-[#f0f6fc] group-hover:text-[#58a6ff]">
-          {node.name}
-        </span>
-
-        {/* Encrypted Lock Badge */}
-        {node.isEncrypted && (
-          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30 font-semibold flex items-center gap-0.5 shrink-0">
-            <Lock className="h-2.5 w-2.5" />
-            <span className="hidden xs:inline">AES-256</span>
-          </span>
-        )}
-
-        {/* Origin / Sandbox Tag */}
-        {node.projectFile?.isSandbox ? (
-          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30 font-semibold shrink-0">
-            SANDBOX
-          </span>
-        ) : (
-          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#8b949e]/15 text-[#8b949e] border border-[#30363d] shrink-0">
-            APP
-          </span>
-        )}
-
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          <span className="text-[10px] text-[#8b949e] font-sans">
-            {node.size}
-          </span>
-          <span className="text-[10px] text-[#58a6ff] opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-            <Eye className="h-3 w-3" />
-            <span className="hidden sm:inline">Inspect</span>
-          </span>
-        </div>
-      </button>
-    );
+    if (lower.endsWith('.yml') || lower.endsWith('.yaml')) {
+      return { icon: Layers, color: 'text-[#e3b341]', bg: 'bg-[#e3b341]/20 border-[#e3b341]/30', label: 'Workflow' };
+    }
+    if (lower.endsWith('.json') || lower.endsWith('.gradle') || lower.endsWith('.kts')) {
+      return { icon: FileText, color: 'text-[#3fb950]', bg: 'bg-[#238636]/20 border-[#238636]/30', label: 'Config' };
+    }
+    return { icon: FileCode, color: 'text-[#8b949e]', bg: 'bg-[#30363d]/40 border-[#30363d]', label: 'File' };
   };
-
-  const vaultStats = AppEncryptedStorageService.getVaultMetadata(allStorageFiles);
 
   return (
-    <div className="space-y-3 max-w-4xl mx-auto pb-10">
-      {/* Top Security & Encryption Status Ribbon */}
-      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-3 sm:p-4 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#238636] to-[#1f6feb] p-0.5 shadow flex-shrink-0">
-            <div className="h-full w-full bg-[#0d1117] rounded-[10px] flex items-center justify-center">
-              <ShieldCheck className="h-5 w-5 text-[#3fb950]" />
+    <div className="space-y-3 max-w-5xl mx-auto pb-10 font-sans" id="phone-storage-container">
+      {/* 1. Redesigned Phone Storage Header & Capacity Bar */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-3.5 sm:p-4 shadow-lg flex flex-col gap-3">
+        {/* Top bar: Storage title + Enclave Lock & Export Buttons */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2.5 rounded-2xl bg-gradient-to-br from-[#1f6feb]/30 to-[#238636]/30 border border-[#1f6feb]/40 text-[#58a6ff] shrink-0 shadow-inner">
+              <Smartphone className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-white tracking-tight truncate">
+                  Device Storage & App Enclave
+                </h2>
+                <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#238636]/30 font-bold shrink-0">
+                  AES-256 Active
+                </span>
+              </div>
+              <p className="text-[11px] text-[#8b949e] font-mono truncate">
+                {storageStats.totalFormatted} used &bull; {allStorageFiles.length} storage files &bull; Scoped Enclave
+              </p>
             </div>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#f0f6fc] tracking-tight">
-                Encrypted App Storage & Workspace Vault
-              </h2>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30 font-semibold">
-                ACTIVE
-              </span>
-            </div>
-            <p className="text-[11px] text-[#8b949e] font-mono">
-              /data/data/com.umakraft.coder/storage &bull; AES-256 Storage Enclave &bull; AI Edit Protected
-            </p>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Write-Lock Button */}
+            <button
+              onClick={handleToggleVaultLock}
+              title={isLockEnforced ? 'System Enclave is Write-Locked (AI cannot overwrite)' : 'System Enclave is Unlocked'}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-mono font-semibold border transition-all active:scale-95 ${
+                isLockEnforced
+                  ? 'bg-[#238636]/20 border-[#3fb950]/50 text-[#3fb950]'
+                  : 'bg-[#21262d] border-[#30363d] text-[#c9d1d9] hover:text-white'
+              }`}
+            >
+              {isLockEnforced ? <Lock className="h-3.5 w-3.5 text-[#3fb950]" /> : <Unlock className="h-3.5 w-3.5 text-[#d29922]" />}
+              <span className="hidden sm:inline">{isLockEnforced ? 'Locked' : 'Unlocked'}</span>
+            </button>
+
+            {/* Export Storage ZIP */}
+            <button
+              onClick={handleDownloadZip}
+              disabled={isExporting}
+              title="Download full storage archive as .zip"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#1f6feb] hover:bg-[#388bfd] text-white text-xs font-bold font-mono shadow-md transition-all active:scale-95 disabled:opacity-50"
+            >
+              <Download className={`h-3.5 w-3.5 ${isExporting ? 'animate-bounce' : ''}`} />
+              <span className="hidden xs:inline">{isExporting ? 'Exporting...' : 'Export ZIP'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Lock Controls & Export ZIP */}
-        <div className="flex items-center gap-2 self-end sm:self-center">
-          <button
-            onClick={handleToggleVaultLock}
-            title={isLockEnforced ? 'Vault Write-Protected (Read-Only Enforced)' : 'Vault Write-Lock Disabled'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all active:scale-95 ${
-              isLockEnforced
-                ? 'bg-[#238636]/20 border-[#3fb950]/50 text-[#3fb950]'
-                : 'bg-[#21262d] border-[#30363d] text-[#c9d1d9] hover:text-white'
-            }`}
-          >
-            {isLockEnforced ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5 text-[#d29922]" />}
-            <span>{isLockEnforced ? 'Write-Locked' : 'Unlocked'}</span>
-          </button>
+        {/* Visual Storage Partition Breakdown Bar (Like Android/iOS Files) */}
+        <div className="space-y-1.5">
+          <div className="h-2.5 w-full bg-[#0d1117] rounded-full overflow-hidden flex border border-[#30363d]/70">
+            <div
+              style={{ width: `${Math.max(storageStats.percentages.kotlin, 2)}%` }}
+              className="h-full bg-[#58a6ff] transition-all"
+              title={`Kotlin/Java: ${storageStats.kotlinFormatted}`}
+            />
+            <div
+              style={{ width: `${Math.max(storageStats.percentages.layout, 2)}%` }}
+              className="h-full bg-[#3fb950] transition-all"
+              title={`Layouts & XML: ${storageStats.layoutFormatted}`}
+            />
+            <div
+              style={{ width: `${Math.max(storageStats.percentages.config, 2)}%` }}
+              className="h-full bg-[#e3b341] transition-all"
+              title={`Configs: ${storageStats.configFormatted}`}
+            />
+            <div
+              style={{ width: `${Math.max(storageStats.percentages.other, 2)}%` }}
+              className="h-full bg-[#bc8cff] transition-all"
+              title={`Other: ${storageStats.otherFormatted}`}
+            />
+          </div>
 
-          <button
-            onClick={handleDownloadZip}
-            disabled={isExporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1f6feb] hover:bg-[#388bfd] text-white text-xs font-semibold shadow transition-all active:scale-95 disabled:opacity-50"
-          >
-            <Download className={`h-3.5 w-3.5 ${isExporting ? 'animate-bounce' : ''}`} />
-            <span className="hidden xs:inline">{isExporting ? 'Exporting...' : 'Export'}</span>
-          </button>
+          {/* Color-Coded Legend Tags */}
+          <div className="flex items-center justify-between text-[10px] font-mono text-[#8b949e] flex-wrap gap-2 pt-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-[#58a6ff]" />
+                <span>Kotlin ({storageStats.kotlinFormatted})</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-[#3fb950]" />
+                <span>Layouts ({storageStats.layoutFormatted})</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-[#e3b341]" />
+                <span>Configs ({storageStats.configFormatted})</span>
+              </span>
+            </div>
+            <span className="text-[#3fb950] font-semibold flex items-center gap-1 bg-[#238636]/10 px-2 py-0.5 rounded-full border border-[#238636]/30">
+              <ShieldCheck className="h-3 w-3" />
+              <span>System Core Sealed & Protected</span>
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Partition View Filter Tabs */}
+      {/* 2. Partition Filter Segment Bar */}
       <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
         {[
-          { id: 'all', label: `All Storage (${allStorageFiles.length})`, icon: Boxes },
-          { id: 'app', label: `App System Files (${appFiles.length})`, icon: FileBox },
-          { id: 'vault', label: 'Encrypted Vault', icon: Lock },
-          { id: 'sandbox', label: `Sandbox Files (${sandboxFiles.length})`, icon: Code2 }
+          { id: 'all', label: `Workspace Files (${allStorageFiles.length})`, icon: Boxes },
+          { id: 'sandbox', label: 'Kotlin & Source', icon: Code2, badge: 'Source' },
+          { id: 'system', label: 'Layouts & UI', icon: FileBox, badge: 'UI' },
+          { id: 'vault', label: 'Build & Configs', icon: Lock }
         ].map((tab) => {
           const Icon = tab.icon;
-          const isSelected = activeStorageView === tab.id;
+          const isSelected = activeStorageCategory === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveStorageView(tab.id as any)}
+              onClick={() => {
+                setActiveStorageCategory(tab.id as any);
+                setCurrentFolderSegments([]);
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono transition-all border shrink-0 ${
                 isSelected
                   ? 'bg-[#1f6feb] text-white border-[#388bfd] font-bold shadow-md shadow-[#1f6feb]/20'
-                  : 'bg-[#161b22] text-[#8b949e] border-[#30363d] hover:bg-[#21262d] hover:text-[#f0f6fc]'
+                  : 'bg-[#161b22] text-[#8b949e] border-[#30363d] hover:bg-[#21262d] hover:text-white'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
               <span>{tab.label}</span>
+              {tab.badge && !isSelected && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-black/40 text-[#8b949e] font-sans">
+                  {tab.badge}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* Directory Tree Full Card */}
-      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-3 sm:p-4 flex flex-col shadow-lg overflow-hidden min-h-[500px]">
-        {/* Header with Title & Tree Controls */}
-        <div className="px-2 pb-3 border-b border-[#30363d] flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-[#f0f6fc] font-mono text-xs flex items-center gap-1.5">
-              <HardDrive className="h-4 w-4 text-[#58a6ff]" />
-              <span>/workspace</span>
-            </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black/40 text-[#8b949e]">
-              {filteredProjectFiles.length} Storage Items
-            </span>
+      {/* 3. Phone-Style File Manager Card */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-3 sm:p-4 flex flex-col shadow-xl min-h-[480px]">
+        {/* Navigation & Breadcrumbs Bar */}
+        <div className="pb-3 border-b border-[#30363d] space-y-2.5">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            {/* Interactive Breadcrumb Strip */}
+            <div className="flex items-center gap-1 text-xs font-mono overflow-x-auto scrollbar-none py-1 min-w-0 max-w-full">
+              <button
+                onClick={() => handleJumpToBreadcrumb(-1)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all ${
+                  currentFolderSegments.length === 0
+                    ? 'bg-[#1f6feb]/20 text-[#58a6ff] border-[#1f6feb]/40 font-bold'
+                    : 'bg-[#21262d] text-[#8b949e] hover:text-white border-[#30363d]'
+                }`}
+              >
+                <HardDrive className="h-3.5 w-3.5" />
+                <span>workspace</span>
+              </button>
+
+              {currentFolderSegments.map((segment, index) => {
+                const isLast = index === currentFolderSegments.length - 1;
+                return (
+                  <React.Fragment key={index}>
+                    <ChevronRight className="h-3.5 w-3.5 text-[#6e7681] shrink-0" />
+                    <button
+                      onClick={() => handleJumpToBreadcrumb(index)}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all whitespace-nowrap ${
+                        isLast
+                          ? 'bg-[#1f6feb]/20 text-[#58a6ff] border-[#1f6feb]/40 font-bold'
+                          : 'bg-[#21262d] text-[#8b949e] hover:text-white border-[#30363d]'
+                      }`}
+                    >
+                      <Folder className="h-3.5 w-3.5 text-[#58a6ff]" />
+                      <span>{segment}</span>
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* View Mode (Grid / List) & Sort Controls */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {currentFolderSegments.length > 0 && (
+                <button
+                  onClick={handleGoUp}
+                  title="Go up to parent folder"
+                  className="px-2.5 py-1 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-white border border-[#30363d] text-xs font-mono flex items-center gap-1 transition-all active:scale-95"
+                >
+                  <ArrowUp className="h-3.5 w-3.5 text-[#58a6ff]" />
+                  <span>Up</span>
+                </button>
+              )}
+
+              {/* View Toggle */}
+              <div className="flex items-center p-0.5 bg-[#0d1117] border border-[#30363d] rounded-xl">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  title="Grid View (Folder Cards)"
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    viewMode === 'grid' ? 'bg-[#1f6feb] text-white' : 'text-[#8b949e] hover:text-white'
+                  }`}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  title="List View (Phone Rows)"
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    viewMode === 'list' ? 'bg-[#1f6feb] text-white' : 'text-[#8b949e] hover:text-white'
+                  }`}
+                >
+                  <List className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Sort Selector */}
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="bg-[#21262d] text-[#c9d1d9] border border-[#30363d] rounded-xl px-2 py-1 text-xs font-mono focus:outline-none"
+              >
+                <option value="name">Sort: Name</option>
+                <option value="size">Sort: Size</option>
+                <option value="type">Sort: Type</option>
+              </select>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={expandAllFolders}
-              title="Expand All Folders"
-              className="p-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] border border-[#30363d] text-xs flex items-center gap-1"
-            >
-              <Maximize2 className="h-3 w-3" />
-              <span className="hidden sm:inline text-[10px]">Expand All</span>
-            </button>
-            <button
-              onClick={collapseAllFolders}
-              title="Collapse All Folders"
-              className="p-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] border border-[#30363d] text-xs flex items-center gap-1"
-            >
-              <Minimize2 className="h-3 w-3" />
-              <span className="hidden sm:inline text-[10px]">Collapse</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Search input */}
-        <div className="pt-2.5 pb-2">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#8b949e]" />
+          {/* Quick Search in Current Folder */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8b949e]" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search storage files (e.g. android.yml, native-pty.cpp, Sora...)"
-              className="w-full pl-9 pr-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-xl text-xs text-[#f0f6fc] placeholder-[#8b949e] focus:outline-none focus:border-[#58a6ff]"
+              placeholder={`Search ${currentFolderSegments.length > 0 ? currentFolderSegments[currentFolderSegments.length - 1] : 'all storage'} (e.g. .kt, .cpp, yaml)...`}
+              className="w-full bg-[#0d1117] border border-[#30363d] focus:border-[#58a6ff] rounded-xl pl-9 pr-8 py-2 text-xs font-mono text-white placeholder-[#6e7681] focus:outline-none transition-colors"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8b949e] hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Scrollable Tree View */}
-        <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-0.5">
-          {renderTreeNode(workspaceTree)}
-        </div>
+        {/* Empty State */}
+        {currentFolderItems.length === 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#8b949e] space-y-2">
+            <FolderOpen className="h-10 w-10 text-[#58a6ff] opacity-40" />
+            <p className="text-xs font-bold text-white">This folder is empty</p>
+            <p className="text-[11px] text-[#8b949e]">No files matching filter in this directory level.</p>
+            {currentFolderSegments.length > 0 && (
+              <button
+                onClick={handleGoUp}
+                className="px-3 py-1 rounded-xl bg-[#21262d] text-[#58a6ff] text-xs font-mono border border-[#30363d] mt-2"
+              >
+                ← Go to parent folder
+              </button>
+            )}
+          </div>
+        )}
 
-        {/* Tree Footer with Cryptographic Tamper Seal & App Rule */}
-        <div className="px-2 pt-2.5 border-t border-[#30363d] flex flex-wrap items-center justify-between text-[11px] text-[#8b949e] font-mono gap-2">
-          <span className="flex items-center gap-1.5 text-[#3fb950]">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span>MasterKey Keystore Active &bull; App Rule: AI Edit Restricted to Sandbox/Workspace</span>
-          </span>
-          <span className="text-[10px] text-[#8b949e]">AES-256 Storage Enclave</span>
+        {/* Folder Content: GRID VIEW (Phone App Style) */}
+        {currentFolderItems.length > 0 && viewMode === 'grid' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 py-3 flex-1 overflow-y-auto">
+            {currentFolderItems.map((item) => {
+              // 1. If it's a FOLDER
+              if (item.isFolder) {
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleOpenFolder(item.name)}
+                    className="flex flex-col items-start p-3 bg-[#0d1117] hover:bg-[#1f6feb]/10 border border-[#30363d] hover:border-[#1f6feb]/50 rounded-2xl text-left transition-all group active:scale-[0.98] shadow-sm relative overflow-hidden"
+                  >
+                    {/* Top line with Folder Icon & Items Count */}
+                    <div className="flex items-center justify-between w-full mb-2">
+                      <div className="p-2 rounded-xl bg-[#1f6feb]/15 text-[#58a6ff] group-hover:scale-110 transition-transform">
+                        <Folder className="h-6 w-6 fill-[#1f6feb]/20" />
+                      </div>
+                      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-[#21262d] text-[#8b949e] group-hover:text-[#58a6ff] border border-[#30363d]">
+                        {item.itemCount} items
+                      </span>
+                    </div>
+
+                    {/* Folder Name */}
+                    <span className="text-xs font-bold font-mono text-white group-hover:text-[#58a6ff] truncate w-full">
+                      {item.name}
+                    </span>
+                    <span className="text-[10px] text-[#8b949e] font-mono mt-0.5">
+                      Tap to open
+                    </span>
+                  </button>
+                );
+              }
+
+              // 2. If it's a FILE
+              const badge = getFileBadgeIcon(item.name);
+              const Icon = badge.icon;
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => item.projectFile && setInspectedFile(item.projectFile)}
+                  className="flex flex-col items-start p-3 bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff]/40 rounded-2xl text-left transition-all group active:scale-[0.98] shadow-sm relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between w-full mb-2">
+                    <div className={`p-2 rounded-xl ${badge.bg} ${badge.color} group-hover:scale-110 transition-transform`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    {item.isSandbox ? (
+                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30">
+                        SANDBOX
+                      </span>
+                    ) : item.isEncrypted ? (
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#238636]/20 text-[#3fb950] border border-[#238636]/30 flex items-center gap-0.5">
+                        <Lock className="h-2.5 w-2.5" />
+                        <span>AES</span>
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#21262d] text-[#8b949e] border border-[#30363d]">
+                        APP
+                      </span>
+                    )}
+                  </div>
+
+                  <span className="text-xs font-bold font-mono text-white group-hover:text-[#58a6ff] truncate w-full">
+                    {item.name}
+                  </span>
+                  <div className="flex items-center justify-between w-full text-[10px] text-[#8b949e] font-mono mt-0.5">
+                    <span>{item.formattedSize}</span>
+                    <span className="text-[#58a6ff] group-hover:underline flex items-center gap-0.5">
+                      <Eye className="h-2.5 w-2.5" />
+                      <span>Inspect</span>
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Folder Content: LIST VIEW (Phone File Manager Row Style) */}
+        {currentFolderItems.length > 0 && viewMode === 'list' && (
+          <div className="divide-y divide-[#30363d]/60 py-1 flex-1 overflow-y-auto">
+            {currentFolderItems.map((item) => {
+              if (item.isFolder) {
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleOpenFolder(item.name)}
+                    className="w-full flex items-center justify-between p-2.5 hover:bg-[#1f6feb]/10 rounded-xl transition-all group text-left"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="p-2 rounded-xl bg-[#1f6feb]/15 text-[#58a6ff] group-hover:scale-105 transition-transform shrink-0">
+                        <Folder className="h-5 w-5 fill-[#1f6feb]/20" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-bold font-mono text-white group-hover:text-[#58a6ff] truncate">
+                          {item.name}
+                        </h4>
+                        <p className="text-[10px] text-[#8b949e] font-mono">
+                          Folder &bull; {item.itemCount} items
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-[#8b949e] group-hover:text-[#58a6ff] shrink-0" />
+                  </button>
+                );
+              }
+
+              const badge = getFileBadgeIcon(item.name);
+              const Icon = badge.icon;
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => item.projectFile && setInspectedFile(item.projectFile)}
+                  className="w-full flex items-center justify-between p-2.5 hover:bg-[#21262d] rounded-xl transition-all group text-left"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`p-2 rounded-xl ${badge.bg} ${badge.color} group-hover:scale-105 transition-transform shrink-0`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="text-xs font-bold font-mono text-white group-hover:text-[#58a6ff] truncate">
+                          {item.name}
+                        </h4>
+                        {item.isSandbox && (
+                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30">
+                            SANDBOX
+                          </span>
+                        )}
+                        {item.isEncrypted && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#238636]/20 text-[#3fb950] border border-[#238636]/30 flex items-center gap-0.5">
+                            <Lock className="h-2.5 w-2.5" />
+                            <span>AES</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-[#8b949e] font-mono truncate">
+                        {item.path} &bull; {item.formattedSize}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-mono text-[#58a6ff] shrink-0 opacity-80 group-hover:opacity-100">
+                    <span>Inspect</span>
+                    <Eye className="h-3.5 w-3.5" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Footer info bar */}
+        <div className="pt-3 border-t border-[#30363d] flex items-center justify-between text-[11px] font-mono text-[#8b949e]">
+          <span>Current Directory: /{currentPathString || 'workspace'}</span>
+          <span>{currentFolderItems.length} items found</span>
         </div>
       </div>
 
       {/* Storage File Inspector Modal */}
       {inspectedFile && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-5 animate-in fade-in">
           <div className="bg-[#161b22] border border-[#30363d] rounded-2xl max-w-3xl w-full h-[85vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="p-3 sm:p-4 border-b border-[#30363d] flex items-center justify-between gap-3 bg-[#0d1117]">
@@ -504,15 +768,19 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-xs sm:text-sm font-bold text-[#f0f6fc] truncate">
+                    <h3 className="text-xs sm:text-sm font-bold text-white truncate">
                       {inspectedFile.name}
                     </h3>
                     <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#21262d] text-[#8b949e] border border-[#30363d]">
                       {inspectedFile.language}
                     </span>
-                    {inspectedFile.isEncrypted && (
-                      <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30 font-semibold">
-                        Encrypted
+                    {inspectedFile.isSandbox ? (
+                      <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/30 font-bold">
+                        User Sandbox
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#238636]/30 font-bold">
+                        App Vault Enclave
                       </span>
                     )}
                   </div>
@@ -527,12 +795,13 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
                   onClick={() => {
                     navigator.clipboard.writeText(inspectedFile.content);
                     setCopiedInspect(true);
+                    confetti({ particleCount: 15, spread: 35 });
                     setTimeout(() => setCopiedInspect(false), 2000);
                   }}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-xs font-mono text-[#c9d1d9] hover:text-white border border-[#30363d]"
                 >
                   {copiedInspect ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5" />}
-                  <span className="hidden xs:inline">{copiedInspect ? 'Copied' : 'Copy'}</span>
+                  <span>{copiedInspect ? 'Copied' : 'Copy Code'}</span>
                 </button>
 
                 <button

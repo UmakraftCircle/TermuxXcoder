@@ -23,7 +23,9 @@ import {
   Settings,
   Code2,
   Bot,
-  HardDrive
+  HardDrive,
+  Camera,
+  Shield
 } from 'lucide-react';
 import { INITIAL_PROJECT_FILES } from './data/projectFiles';
 import { ProjectFile } from './types';
@@ -39,10 +41,10 @@ import { AiCustomizerTab } from './components/AiCustomizerTab';
 import { ReleaseNotesTab } from './components/ReleaseNotesTab';
 import { TerminalPageTab } from './components/TerminalPageTab';
 import { StoragePageTab } from './components/StoragePageTab';
+import { LayoutDesignerTab } from './components/LayoutDesignerTab';
 import { SlideTerminalDrawer } from './components/SlideTerminalDrawer';
 import { QuickPushModal } from './components/QuickPushModal';
 import { AndroidPermissionsModal } from './components/AndroidPermissionsModal';
-import { Camera, Shield } from 'lucide-react';
 
 import { exportProjectToZip, downloadBlob } from './utils/zipExporter';
 import {
@@ -53,6 +55,7 @@ import {
 
 export type AppFunctionTab =
   | 'coder'
+  | 'layout'
   | 'terminal'
   | 'storage'
   | 'functions'
@@ -69,7 +72,7 @@ export default function App() {
   // App System Files (Protected internal architecture, workflows, modules)
   const [appFiles, setAppFiles] = useState<ProjectFile[]>(INITIAL_PROJECT_FILES);
   
-  // Sandbox Files (Purely user-uploaded, imported, or user-created files - isolated from App files)
+  // Sandbox Files (User workspace files)
   const [sandboxFiles, setSandboxFiles] = useState<ProjectFile[]>(() => loadSavedSandboxFiles());
   
   const [activeTab, setActiveTab] = useState<AppFunctionTab>('coder');
@@ -89,7 +92,6 @@ export default function App() {
       setActiveSandboxFilePath(file.path);
       setActiveTab('coder');
     } else {
-      // If it's an app file, navigate to Storage page where all app files are shown
       setActiveTab('storage');
     }
   };
@@ -146,123 +148,34 @@ export default function App() {
 
   const handleExportZip = async () => {
     try {
-      const filesToExport = sandboxFiles.length > 0 ? sandboxFiles : appFiles;
-      const archiveName = sandboxFiles.length > 0 ? 'Umakraft-Sandbox-Project' : 'Umakraft-TermuxXCoder-main';
-      const blob = await exportProjectToZip(filesToExport, archiveName);
-      downloadBlob(blob, `${archiveName}.zip`);
+      const combined = [...appFiles, ...sandboxFiles];
+      const blob = await exportProjectToZip(combined);
+      downloadBlob(blob, 'umakraft-v1.0-complete.zip');
     } catch (e) {
       console.error(e);
     }
   };
 
-  const pageMeta: Record<
-    AppFunctionTab,
-    { title: string; subtitle: string; badge: string; icon: any; category: string }
-  > = {
-    coder: {
-      title: 'Umakraft Sandbox & AI Copilot',
-      subtitle: 'Isolated Sandbox environment for user uploads, ZIP imports & multi-provider AI copilot',
-      badge: 'Sandbox',
-      icon: Code2,
-      category: 'Primary Workspace'
-    },
-    terminal: {
-      title: 'Terminal & GitHub Push Station',
-      subtitle: 'Native PTY shell emulator, git remote sync & direct GitHub push console',
-      badge: 'Git Push',
-      icon: Terminal,
-      category: 'Primary Workspace'
-    },
-    storage: {
-      title: 'Storage & Isolated File Vault',
-      subtitle: 'Encrypted internal app storage (All App Files, Keystore, build cache) & sandbox items',
-      badge: 'App Files',
-      icon: HardDrive,
-      category: 'Primary Workspace'
-    },
-    functions: {
-      title: 'Functions & Architecture Registry',
-      subtitle: 'List of interactive studio tools and backend server-side services with live testing',
-      badge: 'Capabilities',
-      icon: Layers,
-      category: 'Primary Workspace'
-    },
-    workflows: {
-      title: 'GitHub CI/CD & Build Workflows',
-      subtitle: 'Automated GitHub Actions pipelines to build, sign & publish Android APKs',
-      badge: '3 Actions',
-      icon: Workflow,
-      category: 'Build & Release'
-    },
-    releasenotes: {
-      title: 'Auto Release Notes & Checksums',
-      subtitle: 'POSIX shell script parsing git commits into categorized release notes with SHA-256',
-      badge: 'v1.0 Script',
-      icon: FileText,
-      category: 'Build & Release'
-    },
-    diagnostics: {
-      title: 'APK Build Inspector & Diagnostics',
-      subtitle: 'Pre-flight integrity checklist, AGP 8.3 & Android 10+ API 29–34 compliance',
-      badge: 'All Pass',
-      icon: FileCheck2,
-      category: 'Build & Release'
-    },
-    keystore: {
-      title: 'Signing & Keystore Wizard',
-      subtitle: 'PKCS12 keystore generation, v1/v2/v3 APK signing & GitHub secrets guide',
-      badge: 'PKCS12',
-      icon: KeyRound,
-      category: 'Security, AI & Docs'
-    },
-    docs: {
-      title: '10 Volumes Blueprint Specifications',
-      subtitle: 'Full architectural and implementation specifications across all 10 modules',
-      badge: 'Complete',
-      icon: BookOpen,
-      category: 'Security, AI & Docs'
-    },
-    ai: {
-      title: 'AI Code & Workflow Customizer',
-      subtitle: 'Multi-model copilot options (Qwen 1.5 Local, Groq, OpenAI, Gemini, OpenRouter, OpenCode)',
-      badge: 'AI Copilot',
-      icon: Sparkles,
-      category: 'Security, AI & Docs'
-    }
-  };
+  if (showSplash) {
+    return <UmakraftSplashScreen onComplete={() => setShowSplash(false)} />;
+  }
 
   return (
-    <div className="h-[100dvh] h-screen w-full bg-[#0d1117] text-[#c9d1d9] flex flex-col font-sans selection:bg-[#1f6feb] selection:text-white overflow-hidden">
-      {/* Umakraft Front Page Boot/Loading Screen */}
-      {showSplash && (
-        <UmakraftSplashScreen onComplete={() => setShowSplash(false)} />
-      )}
-
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117] text-[#c9d1d9] font-sans antialiased select-none">
       {/* Top Header */}
-      {activeTab !== 'coder' && (
-        <Header
-          files={sandboxFiles.length > 0 ? sandboxFiles : appFiles}
-          activeTab={activeTab}
-          onOpenQuickPush={() => setIsQuickPushOpen(true)}
-          onToggleSlideDrawer={() => setIsSlideDrawerOpen((prev) => !prev)}
-          onGoToCoder={() => setActiveTab('coder')}
-          onOpenPermissions={() => setIsPermissionsModalOpen(true)}
-          isSlideDrawerOpen={isSlideDrawerOpen}
-        />
-      )}
-
-      {/* Top-Left Sliding Master Functions Drawer */}
-      <SlideTerminalDrawer
-        isOpen={isSlideDrawerOpen}
-        onClose={() => setIsSlideDrawerOpen(false)}
+      <Header
         files={appFiles}
         activeTab={activeTab}
-        onSelectTab={(tabId) => setActiveTab(tabId as AppFunctionTab)}
         onOpenQuickPush={() => setIsQuickPushOpen(true)}
+        onOpenPermissions={() => setIsPermissionsModalOpen(true)}
+        onToggleSlideDrawer={() => setIsSlideDrawerOpen(!isSlideDrawerOpen)}
+        isSlideDrawerOpen={isSlideDrawerOpen}
+        onGoToCoder={() => setActiveTab('coder')}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 min-h-0 w-full overflow-hidden p-1.5 sm:p-2.5 flex flex-col">
+      {/* Main Workspace Stage */}
+      <main className="flex-1 min-h-0 overflow-hidden relative p-1.5 sm:p-2.5">
+        {/* 1. AI Coder & Full-screen IDE */}
         {activeTab === 'coder' && (
           <UmakraftAiCoder
             files={sandboxFiles}
@@ -274,85 +187,148 @@ export default function App() {
             onDeleteSandboxFile={handleDeleteSandboxFile}
             onClearSandbox={handleClearSandbox}
             onLoadSampleSandbox={handleLoadSampleSandbox}
-            onGoToStorage={() => setActiveTab('storage')}
-            onOpenSettings={() => setIsSlideDrawerOpen(true)}
+            onOpenSettings={() => setActiveTab('ai')}
             isAiModalOpen={isAiModalOpen}
             onCloseAiModal={() => setIsAiModalOpen(false)}
             onOpenAiModal={() => setIsAiModalOpen(true)}
+            onGoToStorage={() => setActiveTab('storage')}
+            onSelectFile={handleSelectFileToView}
           />
         )}
-        {activeTab === 'terminal' && (
-          <div className="h-full overflow-y-auto">
-            <TerminalPageTab files={appFiles} onOpenQuickPush={() => setIsQuickPushOpen(true)} />
+
+        {/* 2. Visual Layout & Compose Designer */}
+        {activeTab === 'layout' && (
+          <div className="h-full overflow-hidden">
+            <LayoutDesignerTab
+              files={[...appFiles, ...sandboxFiles]}
+              onAddFileToSandbox={handleAddSandboxFile}
+              onSelectTab={(tab) => setActiveTab(tab as AppFunctionTab)}
+            />
           </div>
         )}
+
+        {/* 3. Virtual Linux Shell & Git Push */}
+        {activeTab === 'terminal' && (
+          <div className="h-full overflow-y-auto">
+            <TerminalPageTab
+              files={appFiles}
+              onOpenQuickPush={() => setIsQuickPushOpen(true)}
+            />
+          </div>
+        )}
+
+        {/* 3. Storage Directory & Files */}
         {activeTab === 'storage' && (
           <div className="h-full overflow-y-auto">
             <StoragePageTab
               files={appFiles}
               sandboxFiles={sandboxFiles}
-              onSelectFile={(f) => {
-                handleSelectFileToView(f);
-              }}
+              onSelectFile={handleSelectFileToView}
               onOpenTerminal={() => setActiveTab('terminal')}
             />
           </div>
         )}
+
+        {/* 4. Functions & Service Hub */}
         {activeTab === 'functions' && (
           <div className="h-full overflow-y-auto">
             <FunctionsDirectoryTab
               files={appFiles}
-              onSelectFunction={(fnId) => setActiveTab(fnId as AppFunctionTab)}
+              onSelectFunction={(tab) => setActiveTab(tab as AppFunctionTab)}
               onOpenQuickPush={() => setIsQuickPushOpen(true)}
               onExportZip={handleExportZip}
+              onOpenWebSearch={() => {
+                setActiveTab('coder');
+                setIsAiModalOpen(true);
+              }}
             />
           </div>
         )}
+
+        {/* 5. GitHub Actions Workflows */}
         {activeTab === 'workflows' && (
           <div className="h-full overflow-y-auto">
-            <WorkflowsTab files={appFiles} onSelectFile={handleSelectFileToView} />
+            <WorkflowsTab
+              files={appFiles}
+              onSelectFile={handleSelectFileToView}
+            />
           </div>
         )}
-        {activeTab === 'releasenotes' && (
-          <div className="h-full overflow-y-auto">
-            <ReleaseNotesTab files={appFiles} onSaveFile={handleAddAppFile} />
-          </div>
-        )}
+
+        {/* 6. APK Pre-flight Inspector */}
         {activeTab === 'diagnostics' && (
           <div className="h-full overflow-y-auto">
             <BuildInspectorTab />
           </div>
         )}
+
+        {/* 7. Keystore PKCS12 Signing Wizard */}
         {activeTab === 'keystore' && (
           <div className="h-full overflow-y-auto">
             <KeystoreWizardTab />
           </div>
         )}
-        {activeTab === 'docs' && (
-          <div className="h-full overflow-y-auto">
-            <VolumeDocsTab files={appFiles} onSelectFile={handleSelectFileToView} />
-          </div>
-        )}
+
+        {/* 8. AI Model Configurator */}
         {activeTab === 'ai' && (
           <div className="h-full overflow-y-auto">
-            <AiCustomizerTab files={appFiles} onAddFile={handleAddAppFile} />
+            <AiCustomizerTab
+              files={appFiles}
+              onAddFile={handleAddAppFile}
+            />
+          </div>
+        )}
+
+        {/* 9. Specifications Docs */}
+        {activeTab === 'docs' && (
+          <div className="h-full overflow-y-auto">
+            <VolumeDocsTab
+              files={appFiles}
+              onSelectFile={handleSelectFileToView}
+            />
+          </div>
+        )}
+
+        {/* 10. Release Notes Generator */}
+        {activeTab === 'releasenotes' && (
+          <div className="h-full overflow-y-auto">
+            <ReleaseNotesTab files={appFiles} />
           </div>
         )}
       </main>
 
-      {/* Ultra-Modern Floating Dock Navigation */}
-      <nav className="h-14 sm:h-16 flex-shrink-0 z-30 bg-[#161b22]/90 backdrop-blur-xl border-t border-[#30363d] px-3 sm:px-6 flex items-center justify-around shadow-2xl">
-        <div className="flex items-center justify-around w-full max-w-md mx-auto">
-          {/* Coder Icon Button (Sandbox) */}
+      {/* Slide-out App Drawer Modal */}
+      <SlideTerminalDrawer
+        isOpen={isSlideDrawerOpen}
+        onClose={() => setIsSlideDrawerOpen(false)}
+        files={appFiles}
+        activeTab={activeTab}
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          setIsSlideDrawerOpen(false);
+        }}
+        onOpenQuickPush={() => {
+          setIsSlideDrawerOpen(false);
+          setIsQuickPushOpen(true);
+        }}
+      />
+
+      {/* Floating Bottom Navigation Bar */}
+      <nav
+        id="umakraft-bottom-nav"
+        aria-label="Main Navigation"
+        className="bg-[#161b22]/95 backdrop-blur-md border-t border-[#30363d] px-3 py-1.5 flex items-center justify-around z-40 select-none shadow-2xl flex-shrink-0"
+      >
+        <div className="flex items-center justify-between w-full max-w-md mx-auto gap-2">
+          {/* Coder */}
           <button
             id="btn-nav-coder"
             onClick={() => {
               setActiveTab('coder');
               setIsAiModalOpen(false);
             }}
-            title="Sandbox AI Coder (Upload & Import)"
-            aria-label="AI Coder"
-            className={`relative flex flex-col items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl transition-all active:scale-95 group ${
+            title="Code Editor"
+            className={`relative flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 rounded-2xl transition-all active:scale-95 group ${
               activeTab === 'coder' && !isAiModalOpen
                 ? 'text-white bg-gradient-to-b from-[#1f6feb] to-[#1158c7] shadow-lg shadow-[#1f6feb]/35 border border-[#388bfd]/50'
                 : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
@@ -364,16 +340,15 @@ export default function App() {
             )}
           </button>
 
-          {/* Terminal & GitHub Push Icon Button */}
+          {/* Terminal */}
           <button
             id="btn-nav-terminal"
             onClick={() => {
               setActiveTab('terminal');
               setIsAiModalOpen(false);
             }}
-            title="Terminal & GitHub Push"
-            aria-label="Terminal"
-            className={`relative flex flex-col items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl transition-all active:scale-95 group ${
+            title="Terminal"
+            className={`relative flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 rounded-2xl transition-all active:scale-95 group ${
               activeTab === 'terminal'
                 ? 'text-white bg-gradient-to-b from-[#238636] to-[#196c2e] shadow-lg shadow-[#238636]/35 border border-[#3fb950]/50'
                 : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
@@ -385,16 +360,15 @@ export default function App() {
             )}
           </button>
 
-          {/* Storage & All App Files Directory Tree Icon Button */}
+          {/* Storage */}
           <button
             id="btn-nav-storage"
             onClick={() => {
               setActiveTab('storage');
               setIsAiModalOpen(false);
             }}
-            title="App Storage Vault & System Files"
-            aria-label="App Storage"
-            className={`relative flex flex-col items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl transition-all active:scale-95 group ${
+            title="Storage"
+            className={`relative flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 rounded-2xl transition-all active:scale-95 group ${
               activeTab === 'storage'
                 ? 'text-white bg-gradient-to-b from-[#1f6feb] to-[#1158c7] shadow-lg shadow-[#1f6feb]/35 border border-[#388bfd]/50'
                 : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
@@ -406,16 +380,15 @@ export default function App() {
             )}
           </button>
 
-          {/* AI Copilot Icon Button */}
+          {/* Copilot */}
           <button
             id="btn-nav-ai"
             onClick={() => {
               setActiveTab('coder');
               setIsAiModalOpen((prev) => !prev);
             }}
-            title="AI Copilot Assistant"
-            aria-label="AI Copilot"
-            className={`relative flex flex-col items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl transition-all active:scale-95 group ${
+            title="Copilot"
+            className={`relative flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 rounded-2xl transition-all active:scale-95 group ${
               isAiModalOpen
                 ? 'text-white bg-gradient-to-b from-[#bc8cff] to-[#8957e5] shadow-lg shadow-[#bc8cff]/35 border border-[#d2a8ff]/50'
                 : 'text-[#bc8cff] hover:text-[#d2a8ff] hover:bg-[#21262d]'
@@ -427,13 +400,12 @@ export default function App() {
             )}
           </button>
 
-          {/* Functions / Settings Gear Icon Button (App Drawer) */}
+          {/* App Drawer */}
           <button
             id="btn-nav-functions"
             onClick={() => setIsSlideDrawerOpen(true)}
-            title="App Drawer (All Functions & Tools)"
-            aria-label="App Drawer"
-            className="flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 min-h-[44px] min-w-[44px] rounded-2xl text-[#58a6ff] hover:text-[#79c0ff] bg-[#21262d]/60 hover:bg-[#21262d] border border-[#30363d] active:scale-95 transition-all group"
+            title="App Drawer"
+            className="flex items-center justify-center h-10 w-12 sm:h-11 sm:w-14 rounded-2xl text-[#58a6ff] hover:text-[#79c0ff] bg-[#21262d]/60 hover:bg-[#21262d] border border-[#30363d] active:scale-95 transition-all group"
           >
             <Settings className="h-5 w-5 transition-transform group-hover:rotate-45" />
           </button>
