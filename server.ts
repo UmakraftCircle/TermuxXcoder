@@ -17,6 +17,9 @@ async function startServer() {
 
   // Health and container status telemetry
   app.get("/api/health", (req, res) => {
+    const hasTursoUrl = Boolean(process.env.TURSO_DATABASE_URL || process.env.TURSO_URL);
+    const hasTursoToken = Boolean(process.env.TURSO_AUTH_TOKEN || process.env.TURSO_TOKEN);
+
     res.json({
       status: "ok",
       app: "Umakraft AI Coder & Android Modular Studio",
@@ -25,6 +28,9 @@ async function startServer() {
       memory: process.memoryUsage(),
       environment: process.env.NODE_ENV || "development",
       hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+      hasTursoUrl,
+      hasTursoToken,
+      hasTursoConfigured: hasTursoUrl,
       model: "gemini-3.7-flash",
       serverTime: new Date().toISOString()
     });
@@ -764,6 +770,197 @@ const response = await ai.models.generateContent({
       res.json({ success: true, message: `Provider ${targetProvider} checked.` });
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Connection test failed" });
+    }
+  });
+
+  // Turso Environment Info & Status
+  app.get("/api/turso-info", (req, res) => {
+    const envUrl = (process.env.TURSO_DATABASE_URL || process.env.TURSO_URL || "").trim();
+    const envToken = (process.env.TURSO_AUTH_TOKEN || process.env.TURSO_TOKEN || "").trim();
+
+    let maskedUrl = "";
+    if (envUrl) {
+      try {
+        const parsed = new URL(envUrl.startsWith("http") ? envUrl : `https://${envUrl.replace("libsql://", "")}`);
+        maskedUrl = `${parsed.protocol}//${parsed.hostname}`;
+      } catch {
+        maskedUrl = envUrl.slice(0, 20) + "...";
+      }
+    }
+
+    res.json({
+      hasEnvUrl: Boolean(envUrl),
+      hasEnvToken: Boolean(envToken),
+      configuredInServer: Boolean(envUrl),
+      maskedUrl,
+      databaseUrl: envUrl || undefined
+    });
+  });
+
+  // Turso LibSQL Database Connection Test
+  app.post("/api/turso-test", async (req, res) => {
+    try {
+      const { databaseUrl, authToken } = req.body;
+      const envUrl = process.env.TURSO_DATABASE_URL || process.env.TURSO_URL || "";
+      const envToken = process.env.TURSO_AUTH_TOKEN || process.env.TURSO_TOKEN || "";
+
+      let rawUrl = (databaseUrl || envUrl || "").trim();
+      const token = (authToken !== undefined && authToken !== "") ? authToken : envToken;
+
+      if (!rawUrl) {
+        return res.status(400).json({
+          success: false,
+          error: "Turso database URL is required. Provide it in the request or set TURSO_DATABASE_URL environment variable."
+        });
+      }
+
+      let endpoint = rawUrl;
+      if (endpoint.startsWith("libsql://")) {
+        endpoint = endpoint.replace("libsql://", "https://");
+      } else if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+        endpoint = `https://${endpoint}`;
+      }
+      endpoint = endpoint.replace(/\/+$/, "");
+
+      const startTime = Date.now();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const tursoRes = await fetch(`${endpoint}/v2/pipeline`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          requests: [
+            { type: "execute", stmt: { sql: "SELECT 1 AS status, sqlite_version() AS version, datetime('now') AS server_time;" } },
+            { type: "close" }
+          ]
+        })
+      });
+
+      const latencyMs = Date.now() - startTime;
+
+      if (!tursoRes.ok) {
+        const errText = await tursoRes.text();
+        return res.status(tursoRes.status).json({
+          success: false,
+          error: `Turso HTTP ${tursoRes.status}: ${errText || "Authentication or database error"}`,
+          latencyMs
+        });
+      }
+
+      const data: any = await tursoRes.json();
+      const rows = data?.results?.[0]?.response?.result?.rows || [];
+      const version = rows?.[0]?.[1]?.value || "SQLite 3.x";
+
+      // Extract DB name from hostname
+      let dbName = "turso-memory-db";
+      try {
+        const host = new URL(endpoint).hostname;
+        dbName = host.split(".")[0] || "turso-db";
+      } catch {}
+
+      res.json({
+        success: true,
+        message: `Connected to Turso SQLite Cloud (${version})`,
+        latencyMs,
+        dbName,
+        endpoint,
+        usedEnvCredentials: Boolean(!databaseUrl && envUrl)
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to reach Turso database" });
+    }
+  });
+
+  // Turso LibSQL Execute SQL
+  app.post("/api/turso-execute", async (req, res) => {
+    try {
+      const { databaseUrl, authToken, sql, args = [] } = req.body;
+      const envUrl = process.env.TURSO_DATABASE_URL || process.env.TURSO_URL || "";
+      const envToken = process.env.TURSO_AUTH_TOKEN || process.env.TURSO_TOKEN || "";
+
+      let rawUrl = (databaseUrl || envUrl || "").trim();
+      const token = (authToken !== undefined && authToken !== "") ? authToken : envToken;
+
+      if (!rawUrl || !sql) {
+        return res.status(400).json({
+          error: "databaseUrl and sql are required (or configure TURSO_DATABASE_URL on server)"
+        });
+      }
+
+      let endpoint = rawUrl;
+      if (endpoint.startsWith("libsql://")) {
+        endpoint = endpoint.replace("libsql://", "https://");
+      } else if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+        endpoint = `https://${endpoint}`;
+      }
+      endpoint = endpoint.replace(/\/+$/, "");
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const formattedArgs = (args || []).map((arg: any) => {
+        if (arg === null || arg === undefined) return { type: "null" };
+        if (typeof arg === "number") return { type: "integer", value: String(arg) };
+        if (typeof arg === "boolean") return { type: "integer", value: arg ? "1" : "0" };
+        return { type: "text", value: String(arg) };
+      });
+
+      const tursoRes = await fetch(`${endpoint}/v2/pipeline`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          requests: [
+            {
+              type: "execute",
+              stmt: {
+                sql,
+                args: formattedArgs
+              }
+            },
+            { type: "close" }
+          ]
+        })
+      });
+
+      if (!tursoRes.ok) {
+        const errText = await tursoRes.text();
+        return res.status(tursoRes.status).json({
+          success: false,
+          error: `Turso Error (${tursoRes.status}): ${errText}`
+        });
+      }
+
+      const responseData: any = await tursoRes.json();
+      const execResult = responseData?.results?.[0]?.response?.result;
+
+      if (!execResult) {
+        return res.json({ success: true, rows: [], rowsAffected: 0, columns: [] });
+      }
+
+      const columns: string[] = execResult.cols?.map((c: any) => c.name) || [];
+      const rows = (execResult.rows || []).map((rowArr: any[]) => {
+        const obj: any = {};
+        rowArr.forEach((valObj, idx) => {
+          const colName = columns[idx] || `col_${idx}`;
+          obj[colName] = valObj?.value !== undefined ? valObj.value : null;
+        });
+        return obj;
+      });
+
+      res.json({
+        success: true,
+        rows,
+        rowsAffected: execResult.affected_row_count || 0,
+        lastInsertRowid: execResult.last_insert_rowid,
+        columns
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to execute Turso SQL statement" });
     }
   });
 

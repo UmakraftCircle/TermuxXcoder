@@ -13,9 +13,12 @@ import {
   Lightbulb,
   X,
   FileCode2,
-  ArrowRight
+  ArrowRight,
+  Database,
+  Cloud
 } from 'lucide-react';
 import { AiRagMemoryService, AiMemoryItem, RagDocumentSnippet } from '../utils/aiRagMemoryService';
+import { MemoryService } from '../utils/turso/memoryService';
 import { ProjectFile } from '../types';
 
 interface AiMemoryRagModalProps {
@@ -23,13 +26,15 @@ interface AiMemoryRagModalProps {
   onClose: () => void;
   allFiles: ProjectFile[];
   onSelectSnippetFile?: (path: string) => void;
+  onOpenTursoTab?: () => void;
 }
 
 export const AiMemoryRagModal: React.FC<AiMemoryRagModalProps> = ({
   isOpen,
   onClose,
   allFiles,
-  onSelectSnippetFile
+  onSelectSnippetFile,
+  onOpenTursoTab
 }) => {
   const [activeTab, setActiveTab] = useState<'memory' | 'rag' | 'learning'>('memory');
   const [memories, setMemories] = useState<AiMemoryItem[]>([]);
@@ -87,27 +92,42 @@ export const AiMemoryRagModal: React.FC<AiMemoryRagModalProps> = ({
         {/* Header */}
         <div className="px-4 py-3 bg-[#161b22] border-b border-[#30363d] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-xl bg-gradient-to-br from-[#1f6feb] to-[#a371f7] text-white shadow-md">
-              <Brain className="h-5 w-5" />
+            <div className="p-1.5 rounded-xl bg-gradient-to-br from-[#00eb87] to-[#1f6feb] text-white shadow-md">
+              <Database className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white font-mono flex items-center gap-2">
-                <span>AI MEMORY & RAG KNOWLEDGE</span>
-                <span className="text-[10px] px-2 py-0.2 rounded-full bg-[#1f6feb]/20 text-[#58a6ff] border border-[#1f6feb]/40">
-                  Active
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white font-mono">TURSO MEMORY & RAG</h3>
+                <span className="text-[10px] px-2 py-0.2 rounded-full bg-[#00eb87]/20 text-[#00eb87] border border-[#00eb87]/40 font-bold">
+                  SQLite Cloud
                 </span>
-              </h3>
+              </div>
               <p className="text-[11px] text-[#8b949e]">
-                Persistent project recall, vector indexed snippets, and continuous learning
+                Long-term persistent recall, symbol index, build logs & offline cache
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-white border border-[#30363d]"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenTursoTab && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenTursoTab();
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#00eb87] text-xs font-mono border border-[#30363d] transition-all"
+                title="Open Turso Memory Center"
+              >
+                <Cloud className="h-3 w-3" />
+                <span>Turso DB</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] hover:text-white border border-[#30363d]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}

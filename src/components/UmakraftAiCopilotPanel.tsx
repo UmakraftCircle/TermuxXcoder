@@ -26,10 +26,14 @@ import {
   Bug,
   Code,
   Brain,
-  Layers
+  Layers,
+  Columns2,
+  Rows,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
-import { ProjectFile, AiCopilotConfig } from '../types';
-import { AI_PROVIDERS } from '../utils/aiCopilotService';
+import { ProjectFile, AiCopilotConfig, CopilotLayoutMode } from '../types';
+import { AI_PROVIDERS, getIsUnrestrainedMode, setIsUnrestrainedMode } from '../utils/aiCopilotService';
 import { speechService, VoiceOption } from '../utils/speechService';
 import { AiMemoryRagModal } from './AiMemoryRagModal';
 import confetti from 'canvas-confetti';
@@ -42,9 +46,10 @@ export interface ChatMessage {
   timestamp: string;
   providerBadge?: string;
   groundedSources?: { title: string; url: string }[];
+  autoApplied?: boolean;
 }
 
-export type CopilotLayoutMode = 'split' | 'bottom' | 'full';
+export type { CopilotLayoutMode };
 
 interface UmakraftAiCopilotPanelProps {
   isOpen: boolean;
@@ -68,11 +73,15 @@ interface UmakraftAiCopilotPanelProps {
   onOpenScanner: () => void;
   onOpenWebSearchModal?: () => void;
   editorContent: string;
+  unrestrainedMode?: boolean;
+  onToggleUnrestrainedMode?: (enabled: boolean) => void;
 }
 
 export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
   isOpen,
   onClose,
+  layoutMode = 'split',
+  onChangeLayoutMode,
   currentFile,
   allFiles = [],
   onSelectSnippetFile,
@@ -85,7 +94,9 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
   onApplyCode,
   onOpenScanner,
   onOpenWebSearchModal,
-  editorContent
+  editorContent,
+  unrestrainedMode: propUnrestrainedMode,
+  onToggleUnrestrainedMode
 }) => {
   const [prompt, setPrompt] = useState('');
   const [webSearchGrounded, setWebSearchGrounded] = useState<boolean>(false);
@@ -93,6 +104,30 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [appliedId, setAppliedId] = useState<string | null>(null);
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState<boolean>(false);
+
+  // Unrestrained Sandbox Modification State
+  const [isUnrestrained, setIsUnrestrained] = useState<boolean>(() => {
+    if (propUnrestrainedMode !== undefined) return propUnrestrainedMode;
+    return getIsUnrestrainedMode();
+  });
+
+  useEffect(() => {
+    if (propUnrestrainedMode !== undefined) {
+      setIsUnrestrained(propUnrestrainedMode);
+    }
+  }, [propUnrestrainedMode]);
+
+  const handleToggleUnrestrained = () => {
+    const nextState = !isUnrestrained;
+    setIsUnrestrained(nextState);
+    setIsUnrestrainedMode(nextState);
+    if (onToggleUnrestrainedMode) {
+      onToggleUnrestrainedMode(nextState);
+    }
+    if (nextState) {
+      confetti({ particleCount: 30, spread: 45, origin: { y: 0.5 } });
+    }
+  };
 
   // Voice & Speech States
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
@@ -265,11 +300,13 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
 
   const providerName = AI_PROVIDERS[aiConfig.provider]?.shortName || 'GEMINI 3.7';
 
+  const containerClasses =
+    layoutMode === 'full'
+      ? 'absolute inset-0 bg-[#0d1117]/98 backdrop-blur-md z-30 flex flex-col p-2 sm:p-3 overflow-hidden border border-[#58a6ff]/30 shadow-2xl rounded-2xl animate-in fade-in duration-150'
+      : 'h-full w-full bg-[#0d1117] flex flex-col p-2 sm:p-3 overflow-hidden border-0 shadow-none animate-in fade-in duration-150';
+
   return (
-    <div
-      className="absolute inset-0 bg-[#0d1117]/98 backdrop-blur-md z-30 flex flex-col p-2 sm:p-3 overflow-hidden border border-[#58a6ff]/30 shadow-2xl rounded-2xl animate-in fade-in duration-150"
-      id="umakraft-ai-copilot-container"
-    >
+    <div className={containerClasses} id="umakraft-ai-copilot-container">
       {/* 1. Bold, Clean & Crisp Header */}
       <div className="bg-[#161b22] px-3 py-2 border border-[#30363d] rounded-xl flex items-center justify-between flex-shrink-0 gap-2 shadow-sm">
         {/* Left: Bold App Title & Model Badge */}
@@ -277,31 +314,82 @@ export const UmakraftAiCopilotPanel: React.FC<UmakraftAiCopilotPanelProps> = ({
           <div className="p-1.5 rounded-lg bg-gradient-to-br from-[#1f6feb] to-[#a371f7] text-white shadow-md shrink-0">
             <Sparkles className="h-4 w-4" />
           </div>
-          <div className="flex items-center gap-2 min-w-0">
-            <h2 className="text-sm sm:text-base font-black tracking-wider text-white uppercase font-mono">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h2 className="text-xs sm:text-sm font-black tracking-wider text-white uppercase font-mono truncate">
               AI COPILOT
             </h2>
             <button
               onClick={onOpenAiSettings}
-              title="Change AI Engine or Key"
+              title="Change AI Engine, API Key, or Toggle Local Qwen"
               className="px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[#58a6ff] hover:text-white text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 shrink-0"
             >
-              <Bot className="h-3 w-3" />
-              <span>{providerName}</span>
+              <Bot className="h-3 w-3 text-[#58a6ff]" />
+              <span className="truncate max-w-[80px] sm:max-w-[110px]">{providerName}</span>
             </button>
-            <span className="h-2 w-2 rounded-full bg-[#3fb950] animate-pulse shrink-0 hidden xs:inline-block" title="Online & Ready" />
+            <span className="h-2 w-2 rounded-full bg-[#3fb950] animate-pulse shrink-0 hidden md:inline-block" title="Ready & Connected" />
           </div>
         </div>
 
-        {/* Right: Clean Target Badge & Close Button */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded-md border font-bold uppercase bg-[#1f6feb]/20 text-[#58a6ff] border-[#1f6feb]/40">
-            WORKSPACE
-          </span>
+        {/* Right: Unrestrained Mode Toggle, Layout Switcher & Close Button */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Quick Unrestrained Mode Toggle Button in Header */}
+          <button
+            type="button"
+            onClick={handleToggleUnrestrained}
+            title={
+              isUnrestrained
+                ? '⚡ Unrestrained Mode: ON (AI automatically updates and fixes sandbox files). Click to switch to Guarded Mode.'
+                : '🛡️ Guarded Mode: Manual review before applying code. Click to switch to Unrestrained Mode.'
+            }
+            className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 border transition-all active:scale-95 shrink-0 ${
+              isUnrestrained
+                ? 'bg-[#ffa657]/20 text-[#ffa657] border-[#ffa657]/50 shadow-sm shadow-[#ffa657]/20 ring-1 ring-[#ffa657]/30'
+                : 'bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] border-[#30363d]'
+            }`}
+          >
+            <Zap className={`h-3 w-3 ${isUnrestrained ? 'text-[#ffa657] fill-[#ffa657]' : ''}`} />
+            <span className="hidden sm:inline">{isUnrestrained ? 'UNRESTRAINED' : 'GUARDED'}</span>
+          </button>
+
+          {/* Layout Mode Selector (Side-by-Side Split / Bottom Dock / Full Focus) */}
+          {onChangeLayoutMode && (
+            <div className="hidden sm:flex items-center bg-[#21262d] p-0.5 rounded-lg border border-[#30363d] gap-0.5">
+              <button
+                type="button"
+                onClick={() => onChangeLayoutMode('split')}
+                title="Side-by-Side Split Layout (Code on left, AI on right - No Overlap)"
+                className={`p-1 rounded text-xs transition-colors ${
+                  layoutMode === 'split' ? 'bg-[#1f6feb] text-white shadow-sm' : 'text-[#8b949e] hover:text-white'
+                }`}
+              >
+                <Columns2 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeLayoutMode('bottom')}
+                title="Bottom Dock Layout (Code on top, AI on bottom)"
+                className={`p-1 rounded text-xs transition-colors ${
+                  layoutMode === 'bottom' ? 'bg-[#1f6feb] text-white shadow-sm' : 'text-[#8b949e] hover:text-white'
+                }`}
+              >
+                <Rows className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeLayoutMode('full')}
+                title="Full Focus Overlay"
+                className={`p-1 rounded text-xs transition-colors ${
+                  layoutMode === 'full' ? 'bg-[#1f6feb] text-white shadow-sm' : 'text-[#8b949e] hover:text-white'
+                }`}
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
           <button
             onClick={onClose}
-            title="Close Copilot"
+            title="Close AI Copilot"
             className="p-1.5 rounded-lg bg-[#21262d] hover:bg-[#da3633]/30 text-[#8b949e] hover:text-white border border-[#30363d] hover:border-[#da3633]/50 transition-all active:scale-95"
           >
             <X className="h-4 w-4" />

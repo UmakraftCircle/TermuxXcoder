@@ -15,7 +15,8 @@ import {
   Search,
   CheckCircle2,
   Compass,
-  Layout
+  Layout,
+  Database
 } from 'lucide-react';
 import { ProjectFile } from '../types';
 
@@ -116,6 +117,14 @@ export const SlideTerminalDrawer: React.FC<SlideTerminalDrawerProps> = ({
       icon: Sparkles,
       gradient: 'from-fuchsia-600 to-pink-600',
       iconColor: 'text-fuchsia-200'
+    },
+    {
+      id: 'turso',
+      name: 'Turso Memory',
+      subtitle: 'SQLite Cloud & RAG',
+      icon: Database,
+      gradient: 'from-emerald-500 to-teal-600',
+      iconColor: 'text-emerald-200'
     },
     {
       id: 'docs',

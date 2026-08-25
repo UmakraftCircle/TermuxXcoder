@@ -169,6 +169,56 @@ export const AiProviderSettingsModal: React.FC<AiProviderSettingsModalProps> = (
             </div>
           </div>
 
+          {/* Feature: Unrestrained Sandbox AI Modification Mode */}
+          <div className={`p-3 rounded-xl border transition-all ${
+            config.unrestrainedMode
+              ? 'bg-[#ffa657]/10 border-[#ffa657]/40 text-[#f0f6fc]'
+              : 'bg-[#161b22] border-[#30363d] text-[#8b949e]'
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`p-1.5 rounded-lg shrink-0 ${
+                  config.unrestrainedMode ? 'bg-[#ffa657] text-black shadow-md' : 'bg-[#21262d] text-[#8b949e]'
+                }`}>
+                  <Zap className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-white">⚡ AI Unrestrained Sandbox Mode</span>
+                    <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-bold uppercase ${
+                      config.unrestrainedMode
+                        ? 'bg-[#ffa657]/20 text-[#ffa657] border border-[#ffa657]/40'
+                        : 'bg-[#21262d] text-[#8b949e] border border-[#30363d]'
+                    }`}>
+                      {config.unrestrainedMode ? 'ENABLED (AUTO-MODIFY)' : 'OFF (GUARDED REVIEW)'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#8b949e] mt-0.5 leading-relaxed">
+                    When turned on, AI automatically writes, fixes, and applies generated code directly to your sandbox files without requiring manual confirmation. Can be toggled on/off anytime.
+                  </p>
+                </div>
+              </div>
+
+              {/* Toggle Switch */}
+              <button
+                type="button"
+                onClick={() => setConfig({ ...config, unrestrainedMode: !config.unrestrainedMode })}
+                className={`w-12 h-6 rounded-full transition-colors relative shrink-0 p-0.5 border ${
+                  config.unrestrainedMode
+                    ? 'bg-[#ffa657] border-[#ffa657]'
+                    : 'bg-[#21262d] border-[#30363d]'
+                }`}
+                title={config.unrestrainedMode ? 'Click to turn off Unrestrained mode' : 'Click to turn on Unrestrained mode'}
+              >
+                <div
+                  className={`w-5 h-5 rounded-full bg-white transition-transform shadow-md ${
+                    config.unrestrainedMode ? 'translate-x-6' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* Step 1: Select AI Copilot Provider (Streamlined Responsive Tiles) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">

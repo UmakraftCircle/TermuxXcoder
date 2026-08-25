@@ -37,15 +37,26 @@ import {
   Image as ImageIcon,
   BookOpen,
   Columns2,
-  FileText
+  Rows,
+  Maximize2,
+  FileText,
+  Zap,
+  Wand2,
+  AlignLeft,
+  FileSearch,
+  RotateCcw,
+  RotateCw
 } from 'lucide-react';
-import { ProjectFile, AiCopilotConfig } from '../types';
+import { ProjectFile, AiCopilotConfig, CopilotLayoutMode } from '../types';
 import confetti from 'canvas-confetti';
+import { formatCode } from '../utils/codeFormatter';
 import {
   getSavedAiConfig,
   saveAiConfig,
   requestAiAssist,
-  AI_PROVIDERS
+  AI_PROVIDERS,
+  getIsUnrestrainedMode,
+  setIsUnrestrainedMode
 } from '../utils/aiCopilotService';
 import { AiRagMemoryService } from '../utils/aiRagMemoryService';
 import { AiProviderSettingsModal } from './AiProviderSettingsModal';
@@ -53,6 +64,8 @@ import { CameraCodeScannerModal } from './CameraCodeScannerModal';
 import { MarkdownPreview } from './MarkdownPreview';
 import { UmakraftAiCopilotPanel } from './UmakraftAiCopilotPanel';
 import { WebDocsSearchModal } from './WebDocsSearchModal';
+import { UndoRedoHistoryModal } from './UndoRedoHistoryModal';
+import { sandboxUndoRedoManager } from '../utils/undoRedoManager';
 import {
   parseUploadedFiles,
   parseZipArchive,
@@ -178,6 +191,8 @@ interface UmakraftAiCoderProps {
   onCloseAiModal?: () => void;
   onOpenAiModal?: () => void;
   onSelectFile?: (file: ProjectFile) => void;
+  onOpenGlobalSearch?: () => void;
+  onRestoreFilesSnapshot?: (files: ProjectFile[], targetPath?: string) => void;
 }
 
 interface ChatMessage {
@@ -202,6 +217,8 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   isAiModalOpen = false,
   onCloseAiModal,
   onOpenAiModal,
+  onOpenGlobalSearch,
+  onRestoreFilesSnapshot,
 }) => {
   // Active Workspace Files strictly isolated to user sandbox files
   const activeFileList = sandboxFiles;
@@ -215,6 +232,23 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [activeLine, setActiveLine] = useState<number>(1);
+
+  // Undo/Redo and Sandbox Version Timeline History State
+  const [historyState, setHistoryState] = useState(() => sandboxUndoRedoManager.getState());
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  useEffect(() => {
+    return sandboxUndoRedoManager.subscribe((state) => {
+      setHistoryState(state);
+    });
+  }, []);
+
+  // Initialize history baseline on mount if not yet initialized
+  useEffect(() => {
+    if (sandboxFiles && sandboxFiles.length > 0) {
+      sandboxUndoRedoManager.init(sandboxFiles, activeFilePath || selectedFilePath);
+    }
+  }, []);
 
   // Auto-save state
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
@@ -243,6 +277,19 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   // AI Copilot Provider & Settings State
   const [aiConfig, setAiConfig] = useState<AiCopilotConfig>(getSavedAiConfig());
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
+
+  // Copilot Layout Mode: 'split' (side-by-side no overlap) | 'bottom' (docked below) | 'full' (overlay)
+  const [copilotLayoutMode, setCopilotLayoutMode] = useState<CopilotLayoutMode>(() => {
+    try {
+      const saved = localStorage.getItem('umakraft_copilot_layout_mode');
+      if (saved === 'split' || saved === 'bottom' || saved === 'full') return saved;
+    } catch {}
+    return 'split';
+  });
+
+  // AI Unrestrained Sandbox File Modification Mode State
+  const [isUnrestrainedMode, setIsUnrestrainedModeState] = useState<boolean>(() => getIsUnrestrainedMode());
+  const [aiAutonomousToast, setAiAutonomousToast] = useState<string | null>(null);
 
   // Recent Files Tracking
   const [recentFilePaths, setRecentFilePaths] = useState<string[]>(() => {
@@ -394,28 +441,6 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     }
   }, [currentFile?.path]);
 
-  // Global Keyboard Shortcuts (Ctrl+F for Search, Ctrl+S for Save, Esc to close Search)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setIsSearchOpen(true);
-        setTimeout(() => searchInputRef.current?.focus(), 50);
-      } else if (e.key === 'Escape' && isSearchOpen) {
-        setIsSearchOpen(false);
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        if (currentFile) {
-          onUpdateFileContent(currentFile.path, editorContent);
-          setSaveStatus('saved');
-          setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSearchOpen, currentFile, editorContent, onUpdateFileContent]);
-
   // Automatic Debounced Auto-Save Engine for sandbox files
   const triggerAutoSave = useCallback(
     (newContent: string) => {
@@ -432,10 +457,283 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         setLastSavedTime(
           new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         );
+
+        // Push snapshot to Undo/Redo stack manager
+        const updatedFiles = sandboxFiles.map((f) =>
+          f.path === currentFile.path ? { ...f, content: newContent } : f
+        );
+        sandboxUndoRedoManager.pushSnapshot({
+          actionType: 'manual_edit',
+          filePath: currentFile.path,
+          fileName: currentFile.name,
+          description: `Edit saved in ${currentFile.name}`,
+          files: updatedFiles,
+          activeFilePath: currentFile.path
+        });
       }, 700);
     },
-    [currentFile, onUpdateFileContent]
+    [currentFile, onUpdateFileContent, sandboxFiles]
   );
+
+  // Intelligent Code Auto-Formatter Engine
+  const handleAutoFormatCode = useCallback(() => {
+    if (!editorContent || !currentFile) return;
+
+    const result = formatCode(editorContent, currentFile.language, currentFile.name);
+
+    if (result.changed) {
+      setEditorContent(result.formatted);
+      onUpdateFileContent(currentFile.path, result.formatted);
+      setSaveStatus('saved');
+      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+      // Record in undo/redo stack
+      const updatedFiles = sandboxFiles.map((f) =>
+        f.path === currentFile.path ? { ...f, content: result.formatted } : f
+      );
+      sandboxUndoRedoManager.pushSnapshot({
+        actionType: 'auto_format',
+        filePath: currentFile.path,
+        fileName: currentFile.name,
+        description: `Auto-formatted ${result.stats.description} in ${currentFile.name}`,
+        files: updatedFiles,
+        activeFilePath: currentFile.path,
+        force: true
+      });
+
+      setActiveFileToast({
+        name: currentFile.name,
+        path: currentFile.path,
+        extLabel: 'FORMAT',
+        color: 'text-[#3fb950]',
+        bgColor: 'bg-[#238636]/15',
+        borderColor: 'border-[#3fb950]/40',
+        typeDesc: `Auto-formatted ${result.stats.description} (${result.stats.formattedLines} lines)`
+      });
+
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setActiveFileToast(null);
+      }, 2800);
+
+      confetti({ particleCount: 25, spread: 45, origin: { y: 0.3 } });
+    } else {
+      setActiveFileToast({
+        name: currentFile.name,
+        path: currentFile.path,
+        extLabel: 'CLEAN',
+        color: 'text-[#58a6ff]',
+        bgColor: 'bg-[#1f6feb]/15',
+        borderColor: 'border-[#1f6feb]/40',
+        typeDesc: 'Code is already cleanly formatted'
+      });
+
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setActiveFileToast(null);
+      }, 2000);
+    }
+  }, [editorContent, currentFile, onUpdateFileContent, sandboxFiles]);
+
+  // Undo & Redo Handlers
+  const handleUndo = useCallback(() => {
+    const snapshot = sandboxUndoRedoManager.undo();
+    if (snapshot) {
+      if (onRestoreFilesSnapshot) {
+        onRestoreFilesSnapshot(snapshot.files, snapshot.activeFilePath || snapshot.filePath);
+      }
+      const targetFile =
+        snapshot.files.find((f) => f.path === (snapshot.activeFilePath || snapshot.filePath)) ||
+        snapshot.files[0];
+      if (targetFile) {
+        setSelectedFilePath(targetFile.path);
+        setEditorContent(targetFile.content);
+      }
+
+      setActiveFileToast({
+        name: snapshot.fileName,
+        path: snapshot.filePath,
+        extLabel: 'UNDO',
+        color: 'text-[#58a6ff]',
+        bgColor: 'bg-[#1f6feb]/20',
+        borderColor: 'border-[#1f6feb]/50',
+        typeDesc: `⏪ Undid: ${snapshot.description}`
+      });
+
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setActiveFileToast(null);
+      }, 2800);
+    }
+  }, [onRestoreFilesSnapshot]);
+
+  const handleRedo = useCallback(() => {
+    const snapshot = sandboxUndoRedoManager.redo();
+    if (snapshot) {
+      if (onRestoreFilesSnapshot) {
+        onRestoreFilesSnapshot(snapshot.files, snapshot.activeFilePath || snapshot.filePath);
+      }
+      const targetFile =
+        snapshot.files.find((f) => f.path === (snapshot.activeFilePath || snapshot.filePath)) ||
+        snapshot.files[0];
+      if (targetFile) {
+        setSelectedFilePath(targetFile.path);
+        setEditorContent(targetFile.content);
+      }
+
+      setActiveFileToast({
+        name: snapshot.fileName,
+        path: snapshot.filePath,
+        extLabel: 'REDO',
+        color: 'text-[#3fb950]',
+        bgColor: 'bg-[#238636]/20',
+        borderColor: 'border-[#3fb950]/50',
+        typeDesc: `⏩ Redid: ${snapshot.description}`
+      });
+
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setActiveFileToast(null);
+      }, 2800);
+    }
+  }, [onRestoreFilesSnapshot]);
+
+  const handleJumpToSnapshot = useCallback(
+    (index: number) => {
+      const snapshot = sandboxUndoRedoManager.jumpToIndex(index);
+      if (snapshot) {
+        if (onRestoreFilesSnapshot) {
+          onRestoreFilesSnapshot(snapshot.files, snapshot.activeFilePath || snapshot.filePath);
+        }
+        const targetFile =
+          snapshot.files.find((f) => f.path === (snapshot.activeFilePath || snapshot.filePath)) ||
+          snapshot.files[0];
+        if (targetFile) {
+          setSelectedFilePath(targetFile.path);
+          setEditorContent(targetFile.content);
+        }
+
+        setActiveFileToast({
+          name: snapshot.fileName,
+          path: snapshot.filePath,
+          extLabel: 'RESTORE',
+          color: 'text-[#d2a8ff]',
+          bgColor: 'bg-[#8957e5]/20',
+          borderColor: 'border-[#8957e5]/50',
+          typeDesc: `🕒 Restored snapshot: ${snapshot.description}`
+        });
+
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = setTimeout(() => {
+          setActiveFileToast(null);
+        }, 2800);
+      }
+    },
+    [onRestoreFilesSnapshot]
+  );
+
+  const handleClearHistory = useCallback(() => {
+    sandboxUndoRedoManager.clear();
+    if (sandboxFiles.length > 0) {
+      sandboxUndoRedoManager.init(sandboxFiles, currentFile?.path);
+    }
+  }, [sandboxFiles, currentFile]);
+
+  // Global Keyboard Shortcuts
+  // - Ctrl+Z (Cmd+Z): Undo
+  // - Ctrl+Y or Ctrl+Shift+Z (Cmd+Shift+Z): Redo
+  // - Ctrl+Alt+H (Cmd+Alt+H): Version Timeline & History
+  // - Ctrl+Shift+F (Cmd+Shift+F): Global Search Index Modal
+  // - Ctrl+F (Cmd+F): In-Editor Find & Replace
+  // - Shift+Alt+F or Ctrl+Shift+I: Auto-Format Current Code
+  // - Ctrl+S (Cmd+S): Manual Save Immediate
+  // - Esc: Close Find & Replace
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Global Search shortcut: Ctrl+Shift+F or Cmd+Shift+F
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        if (onOpenGlobalSearch) {
+          onOpenGlobalSearch();
+        }
+        return;
+      }
+
+      // History timeline modal shortcut: Ctrl+Alt+H or Cmd+Alt+H
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setIsHistoryModalOpen((prev) => !prev);
+        return;
+      }
+
+      // Redo shortcut: Ctrl+Y or Ctrl+Shift+Z (Cmd+Shift+Z)
+      if (
+        ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        if (historyState.canRedo) {
+          e.preventDefault();
+          handleRedo();
+          return;
+        }
+      }
+
+      // Undo shortcut: Ctrl+Z (Cmd+Z)
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z') {
+        // If not in standard active input that has native undo, or if user wants sandbox undo
+        const isOutsideEditorTextarea =
+          document.activeElement !== textareaRef.current &&
+          (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA');
+
+        if (!isOutsideEditorTextarea && historyState.canUndo) {
+          e.preventDefault();
+          handleUndo();
+          return;
+        }
+      }
+
+      // Auto-format shortcut: Shift+Alt+F or Ctrl+Shift+I
+      if (
+        (e.shiftKey && e.altKey && e.key.toLowerCase() === 'f') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'i')
+      ) {
+        e.preventDefault();
+        handleAutoFormatCode();
+        return;
+      }
+
+      // In-Editor Search shortcut: Ctrl+F or Cmd+F
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setIsSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      } else if (e.key === 'Escape' && isSearchOpen) {
+        setIsSearchOpen(false);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (currentFile) {
+          onUpdateFileContent(currentFile.path, editorContent);
+          setSaveStatus('saved');
+          setLastSavedTime(
+            new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          );
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    isSearchOpen,
+    currentFile,
+    editorContent,
+    onUpdateFileContent,
+    onOpenGlobalSearch,
+    handleAutoFormatCode,
+    handleUndo,
+    handleRedo,
+    historyState.canUndo,
+    historyState.canRedo
+  ]);
 
   const handleEditorChange = (newContent: string) => {
     setEditorContent(newContent);
@@ -485,7 +783,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   };
 
   const handleReplaceOne = () => {
-    if (!searchQuery || totalMatches === 0) return;
+    if (!searchQuery || totalMatches === 0 || !currentFile) return;
     const currentLineNum = matchedLineIndices[currentMatchIndex] || matchedLineIndices[0];
     if (!currentLineNum) return;
 
@@ -499,18 +797,49 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     lines[lineIdx] = updatedLine;
     const newContent = lines.join('\n');
     setEditorContent(newContent);
-    triggerAutoSave(newContent);
+    onUpdateFileContent(currentFile.path, newContent);
+    setSaveStatus('saved');
+    setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+    const updatedFiles = sandboxFiles.map((f) =>
+      f.path === currentFile.path ? { ...f, content: newContent } : f
+    );
+    sandboxUndoRedoManager.pushSnapshot({
+      actionType: 'replace_find',
+      filePath: currentFile.path,
+      fileName: currentFile.name,
+      description: `Replaced match in ${currentFile.name}`,
+      files: updatedFiles,
+      activeFilePath: currentFile.path,
+      force: true
+    });
   };
 
   const handleReplaceAll = () => {
-    if (!searchQuery) return;
+    if (!searchQuery || !currentFile) return;
     const regex = new RegExp(
       searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
       isMatchCase ? 'g' : 'gi'
     );
     const newContent = editorContent.replace(regex, replaceQuery);
     setEditorContent(newContent);
-    triggerAutoSave(newContent);
+    onUpdateFileContent(currentFile.path, newContent);
+    setSaveStatus('saved');
+    setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+    const updatedFiles = sandboxFiles.map((f) =>
+      f.path === currentFile.path ? { ...f, content: newContent } : f
+    );
+    sandboxUndoRedoManager.pushSnapshot({
+      actionType: 'replace_find',
+      filePath: currentFile.path,
+      fileName: currentFile.name,
+      description: `Replaced all "${searchQuery}" with "${replaceQuery}" in ${currentFile.name}`,
+      files: updatedFiles,
+      activeFilePath: currentFile.path,
+      force: true
+    });
+
     confetti({ particleCount: 30, spread: 40, origin: { y: 0.5 } });
   };
 
@@ -541,6 +870,20 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         try {
           const parsed = await parseZipArchive(zipFile);
           if (parsed.length > 0) {
+            const nextFiles = [
+              ...parsed,
+              ...sandboxFiles.filter((f) => !parsed.some((p) => p.path === f.path))
+            ];
+            sandboxUndoRedoManager.pushSnapshot({
+              actionType: 'file_import',
+              filePath: parsed[0].path,
+              fileName: zipFile.name,
+              description: `Imported ${parsed.length} files from ${zipFile.name}`,
+              files: nextFiles,
+              activeFilePath: parsed[0].path,
+              force: true
+            });
+
             if (onAddMultipleSandboxFiles) onAddMultipleSandboxFiles(parsed);
             else if (onAddSandboxFile) parsed.forEach(onAddSandboxFile);
             setSelectedFilePath(parsed[0].path);
@@ -557,6 +900,20 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       try {
         const parsed = await parseUploadedFiles(droppedFiles);
         if (parsed.length > 0) {
+          const nextFiles = [
+            ...parsed,
+            ...sandboxFiles.filter((f) => !parsed.some((p) => p.path === f.path))
+          ];
+          sandboxUndoRedoManager.pushSnapshot({
+            actionType: 'file_import',
+            filePath: parsed[0].path,
+            fileName: `${parsed.length} files`,
+            description: `Dropped & imported ${parsed.length} sandbox files`,
+            files: nextFiles,
+            activeFilePath: parsed[0].path,
+            force: true
+          });
+
           if (onAddMultipleSandboxFiles) onAddMultipleSandboxFiles(parsed);
           else if (onAddSandboxFile) parsed.forEach(onAddSandboxFile);
           setSelectedFilePath(parsed[0].path);
@@ -577,6 +934,20 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       try {
         const parsed = await parseUploadedFiles(e.target.files);
         if (parsed.length > 0) {
+          const nextFiles = [
+            ...parsed,
+            ...sandboxFiles.filter((f) => !parsed.some((p) => p.path === f.path))
+          ];
+          sandboxUndoRedoManager.pushSnapshot({
+            actionType: 'file_import',
+            filePath: parsed[0].path,
+            fileName: `${parsed.length} files`,
+            description: `Uploaded ${parsed.length} sandbox files`,
+            files: nextFiles,
+            activeFilePath: parsed[0].path,
+            force: true
+          });
+
           if (onAddMultipleSandboxFiles) onAddMultipleSandboxFiles(parsed);
           else if (onAddSandboxFile) parsed.forEach(onAddSandboxFile);
           setSelectedFilePath(parsed[0].path);
@@ -600,6 +971,20 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         const zipFile = e.target.files[0];
         const parsed = await parseZipArchive(zipFile);
         if (parsed.length > 0) {
+          const nextFiles = [
+            ...parsed,
+            ...sandboxFiles.filter((f) => !parsed.some((p) => p.path === f.path))
+          ];
+          sandboxUndoRedoManager.pushSnapshot({
+            actionType: 'file_import',
+            filePath: parsed[0].path,
+            fileName: zipFile.name,
+            description: `Imported ${parsed.length} files from ${zipFile.name}`,
+            files: nextFiles,
+            activeFilePath: parsed[0].path,
+            force: true
+          });
+
           if (onAddMultipleSandboxFiles) onAddMultipleSandboxFiles(parsed);
           else if (onAddSandboxFile) parsed.forEach(onAddSandboxFile);
           setSelectedFilePath(parsed[0].path);
@@ -622,6 +1007,20 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       try {
         const parsed = await parseUploadedFiles(e.target.files);
         if (parsed.length > 0) {
+          const nextFiles = [
+            ...parsed,
+            ...sandboxFiles.filter((f) => !parsed.some((p) => p.path === f.path))
+          ];
+          sandboxUndoRedoManager.pushSnapshot({
+            actionType: 'file_import',
+            filePath: parsed[0].path,
+            fileName: 'Folder import',
+            description: `Uploaded folder containing ${parsed.length} files`,
+            files: nextFiles,
+            activeFilePath: parsed[0].path,
+            force: true
+          });
+
           if (onAddMultipleSandboxFiles) onAddMultipleSandboxFiles(parsed);
           else if (onAddSandboxFile) parsed.forEach(onAddSandboxFile);
           setSelectedFilePath(parsed[0].path);
@@ -663,6 +1062,17 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     }
 
     const created = createNewSandboxFile(finalName, initialTemplate);
+    const nextFiles = [created, ...sandboxFiles.filter((f) => f.path !== created.path)];
+    sandboxUndoRedoManager.pushSnapshot({
+      actionType: 'file_create',
+      filePath: created.path,
+      fileName: created.name,
+      description: `Created new file ${created.name}`,
+      files: nextFiles,
+      activeFilePath: created.path,
+      force: true
+    });
+
     if (onAddSandboxFile) {
       onAddSandboxFile(created);
     }
@@ -737,8 +1147,17 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       const codeMatch = replyText.match(/```(?:kotlin|java|cpp|c|yaml|groovy|json|bash|sh|xml|kts)?\n([\s\S]*?)```/);
       const extractedCode = codeMatch ? codeMatch[1].trim() : null;
 
+      let wasAutoApplied = false;
       if (extractedCode) {
         setLastSuggestedCode(extractedCode);
+        if (isUnrestrainedMode && currentFile) {
+          // Autonomous unrestrained sandbox modification
+          handleApplySuggestedCode(extractedCode);
+          wasAutoApplied = true;
+          setAiAutonomousToast(`⚡ AI Unrestrained: Auto-updated ${currentFile.name}`);
+          confetti({ particleCount: 30, spread: 50, origin: { y: 0.6 } });
+          setTimeout(() => setAiAutonomousToast(null), 4500);
+        }
       }
 
       const aiMsg: ChatMessage = {
@@ -770,6 +1189,19 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       onUpdateFileContent(currentFile.path, code);
       setSaveStatus('saved');
       setLastSavedTime('Just now (AI Patch)');
+
+      const updatedFiles = sandboxFiles.map((f) =>
+        f.path === currentFile.path ? { ...f, content: code } : f
+      );
+      sandboxUndoRedoManager.pushSnapshot({
+        actionType: 'ai_patch',
+        filePath: currentFile.path,
+        fileName: currentFile.name,
+        description: `Applied AI code patch to ${currentFile.name}`,
+        files: updatedFiles,
+        activeFilePath: currentFile.path,
+        force: true
+      });
     }
     confetti({ particleCount: 40, spread: 50, origin: { y: 0.4 } });
   };
@@ -779,6 +1211,19 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       onUpdateFileContent(currentFile.path, editorContent);
       setSaveStatus('saved');
       setLastSavedTime('Just now');
+
+      const updatedFiles = sandboxFiles.map((f) =>
+        f.path === currentFile.path ? { ...f, content: editorContent } : f
+      );
+      sandboxUndoRedoManager.pushSnapshot({
+        actionType: 'manual_edit',
+        filePath: currentFile.path,
+        fileName: currentFile.name,
+        description: `Manual save on ${currentFile.name}`,
+        files: updatedFiles,
+        activeFilePath: currentFile.path,
+        force: true
+      });
     }
     setIsEditing(false);
   };
@@ -1030,8 +1475,96 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
             )}
           </div>
 
-          {/* Right Header Status: Real-time Auto-Save Status Badge & File Details */}
-          <div className="flex items-center gap-2 flex-shrink-0 text-[11px] font-mono">
+          {/* Right Header Status: Format, Undo/Redo, Timeline, Unrestrained Switch, Auto-Save Status Badge & File Details */}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0 text-[11px] font-mono">
+            {/* Quick Auto-Format Button */}
+            {currentFile && (
+              <button
+                type="button"
+                onClick={handleAutoFormatCode}
+                title="Auto-Format current file (Shift+Alt+F / Ctrl+Shift+I)"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#30363d] hover:border-[#39c5bb]/50 bg-[#0d1117] hover:bg-[#21262d] text-[#39c5bb] hover:text-[#56d4dd] text-[10px] font-mono font-bold transition-all active:scale-95 shadow-sm"
+              >
+                <Wand2 className="h-3 w-3" />
+                <span className="hidden md:inline">Format</span>
+              </button>
+            )}
+
+            {/* Quick Header Undo Button */}
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!historyState.canUndo}
+              title={`Undo last sandbox action (Ctrl+Z) - ${historyState.pastCount} step(s) available`}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold transition-all active:scale-95 ${
+                historyState.canUndo
+                  ? 'border-[#30363d] hover:border-[#58a6ff]/50 bg-[#0d1117] hover:bg-[#21262d] text-[#58a6ff] hover:text-[#79c0ff] shadow-sm'
+                  : 'border-[#21262d] bg-[#0d1117]/50 text-[#484f58] cursor-not-allowed'
+              }`}
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span className="hidden lg:inline">Undo</span>
+              {historyState.pastCount > 0 && (
+                <span className="text-[9px] opacity-75">({historyState.pastCount})</span>
+              )}
+            </button>
+
+            {/* Quick Header Redo Button */}
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!historyState.canRedo}
+              title={`Redo sandbox action (Ctrl+Y / Ctrl+Shift+Z) - ${historyState.futureCount} step(s) available`}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold transition-all active:scale-95 ${
+                historyState.canRedo
+                  ? 'border-[#30363d] hover:border-[#3fb950]/50 bg-[#0d1117] hover:bg-[#21262d] text-[#3fb950] hover:text-[#56d4dd] shadow-sm'
+                  : 'border-[#21262d] bg-[#0d1117]/50 text-[#484f58] cursor-not-allowed'
+              }`}
+            >
+              <RotateCw className="h-3 w-3" />
+              <span className="hidden lg:inline">Redo</span>
+            </button>
+
+            {/* History Version Timeline Modal Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsHistoryModalOpen(true)}
+              title={`Sandbox Version History & Snapshots (${historyState.snapshots.length} total) (Ctrl+Alt+H)`}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#30363d] hover:border-[#d2a8ff]/50 bg-[#0d1117] hover:bg-[#21262d] text-[#d2a8ff] hover:text-[#e2c5ff] text-[10px] font-mono font-bold transition-all active:scale-95 shadow-sm"
+            >
+              <History className="h-3 w-3" />
+              <span className="hidden sm:inline">Timeline</span>
+              <span className="text-[9px] px-1 rounded-full bg-[#8957e5]/20 text-[#d2a8ff]">
+                {historyState.snapshots.length}
+              </span>
+            </button>
+
+            {/* Quick Unrestrained Mode Toggle Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const nextState = !isUnrestrainedMode;
+                setIsUnrestrainedModeState(nextState);
+                setIsUnrestrainedMode(nextState);
+                if (nextState) {
+                  confetti({ particleCount: 25, spread: 40, origin: { y: 0.2 } });
+                }
+              }}
+              title={
+                isUnrestrainedMode
+                  ? '⚡ Unrestrained Mode Active: AI modifications are automatically applied to sandbox files. Click to disable.'
+                  : '🛡️ Guarded Mode: Manual review before applying code. Click to enable Unrestrained Mode.'
+              }
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold transition-all active:scale-95 ${
+                isUnrestrainedMode
+                  ? 'bg-[#ffa657]/15 text-[#ffa657] border-[#ffa657]/40 shadow-sm'
+                  : 'bg-[#0d1117] text-[#8b949e] hover:text-[#c9d1d9] border-[#30363d]'
+              }`}
+            >
+              <Zap className={`h-3 w-3 ${isUnrestrainedMode ? 'text-[#ffa657] fill-[#ffa657]' : ''}`} />
+              <span className="hidden xs:inline">{isUnrestrainedMode ? 'Unrestrained' : 'Guarded'}</span>
+            </button>
+
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#0d1117] border border-[#30363d] text-[10px]">
               {saveStatus === 'saving' ? (
                 <>
@@ -1047,18 +1580,33 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
             </div>
 
             {currentFile && (
-              <span className="text-[10px] text-[#8b949e] hidden lg:inline truncate max-w-[160px]">
+              <span className="text-[10px] text-[#8b949e] hidden xl:inline truncate max-w-[140px]">
                 {currentFile.name} &bull; {lines.length} lines
               </span>
             )}
           </div>
         </div>
 
-        {/* Main Body: Top-Left Icon Rail (From Top to Bottom) + Code Viewer Area */}
-        <div className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
-          {/* TOP-LEFT VERTICAL ACTION TOOLBAR (Stacked from top to bottom) */}
+        {/* Autonomous Unrestrained AI Toast Banner */}
+        {aiAutonomousToast && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 z-40 bg-[#161b22] border border-[#ffa657]/60 px-4 py-2 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs text-[#ffa657] font-mono animate-in slide-in-from-top-4 duration-150">
+            <Zap className="h-4 w-4 text-[#ffa657] fill-[#ffa657] animate-pulse" />
+            <span className="font-bold">{aiAutonomousToast}</span>
+            <button
+              onClick={() => setAiAutonomousToast(null)}
+              className="p-0.5 rounded text-[#8b949e] hover:text-white ml-1"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Main Body Container: Split Side-by-Side vs Bottom Dock vs Code Alone */}
+        <div className={`flex-1 min-h-0 flex ${copilotLayoutMode === 'bottom' && isAiModalOpen ? 'flex-col' : 'flex-col lg:flex-row'} overflow-hidden relative`}>
+          {/* Work Area: Left Rail + Main Code Viewer */}
+          <div className="flex-1 min-h-0 min-w-0 flex flex-row overflow-hidden relative">
+            {/* TOP-LEFT VERTICAL ACTION TOOLBAR (Stacked from top to bottom) */}
           <div className="w-11 sm:w-12 bg-[#161b22] border-r border-[#30363d] flex flex-col items-center py-2 gap-1.5 shrink-0 z-20 overflow-y-auto scrollbar-none shadow-sm select-none">
-            {/* 1. Edit / Done Button */}
             {/* 1. Edit / Check Mark Toggle Button */}
             {currentFile && (
               <button
@@ -1080,7 +1628,64 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
               </button>
             )}
 
-            {/* 2. AI Check Code & Diagnose Button */}
+            {/* 2. Auto-Format Code Button */}
+            <button
+              onClick={handleAutoFormatCode}
+              title="Auto-Format Code (Shift+Alt+F / Ctrl+Shift+I)"
+              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#39c5bb] hover:text-[#56d4dd] border border-[#39c5bb]/40 text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
+            >
+              <Wand2 className="h-4 w-4 text-[#39c5bb]" />
+            </button>
+
+            {/* 3. Quick Undo Sandbox Action */}
+            <button
+              onClick={handleUndo}
+              disabled={!historyState.canUndo}
+              title={`Undo Sandbox Action (Ctrl+Z) - ${historyState.pastCount} step(s)`}
+              className={`p-2 rounded-xl border text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm ${
+                historyState.canUndo
+                  ? 'bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] border-[#58a6ff]/40'
+                  : 'bg-[#161b22] text-[#484f58] border-[#21262d] cursor-not-allowed opacity-50'
+              }`}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+
+            {/* 4. Quick Redo Sandbox Action */}
+            <button
+              onClick={handleRedo}
+              disabled={!historyState.canRedo}
+              title={`Redo Sandbox Action (Ctrl+Y / Ctrl+Shift+Z) - ${historyState.futureCount} step(s)`}
+              className={`p-2 rounded-xl border text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm ${
+                historyState.canRedo
+                  ? 'bg-[#21262d] hover:bg-[#30363d] text-[#3fb950] hover:text-[#56d4dd] border-[#3fb950]/40'
+                  : 'bg-[#161b22] text-[#484f58] border-[#21262d] cursor-not-allowed opacity-50'
+              }`}
+            >
+              <RotateCw className="h-4 w-4" />
+            </button>
+
+            {/* 5. Version History & Snapshot Timeline */}
+            <button
+              onClick={() => setIsHistoryModalOpen(true)}
+              title={`Version Timeline & History Snapshots (${historyState.snapshots.length}) (Ctrl+Alt+H)`}
+              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#d2a8ff] hover:text-[#e2c5ff] border border-[#8957e5]/40 text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
+            >
+              <History className="h-4 w-4 text-[#d2a8ff]" />
+            </button>
+
+            {/* 6. Global Search Index */}
+            {onOpenGlobalSearch && (
+              <button
+                onClick={onOpenGlobalSearch}
+                title="Global Search Index across all files (Ctrl+Shift+F)"
+                className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] border border-[#58a6ff]/40 text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
+              >
+                <FileSearch className="h-4 w-4 text-[#58a6ff]" />
+              </button>
+            )}
+
+            {/* 7. AI Check Code & Diagnose Button */}
             <button
               onClick={() => handleCheckCodeAndDiagnose()}
               title="AI Code Inspector: Analyze code for bugs, errors & recommended fixes"
@@ -1089,7 +1694,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
               <ShieldCheck className="h-4 w-4 text-[#e3b341]" />
             </button>
 
-            {/* 3. Search & Replace (Find) */}
+            {/* 8. In-Editor Search & Replace (Find) */}
             <button
               onClick={() => {
                 setIsSearchOpen((prev) => !prev);
@@ -1097,7 +1702,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                   setTimeout(() => searchInputRef.current?.focus(), 50);
                 }
               }}
-              title="Search and Replace in Code (Ctrl+F)"
+              title="Search and Replace in Current File (Ctrl+F)"
               className={`p-2 rounded-xl text-xs flex items-center justify-center border transition-all active:scale-95 shadow-sm ${
                 isSearchOpen
                   ? 'bg-[#1f6feb] text-white border-[#388bfd] ring-2 ring-[#1f6feb]/30'
@@ -1107,7 +1712,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
               <Search className="h-4 w-4" />
             </button>
 
-            {/* 4. Unified Import Flyout Dropdown */}
+            {/* 6. Unified Import Flyout Dropdown */}
             <div className="relative" ref={importMenuRef}>
               <button
                 onClick={() => setIsImportMenuOpen((prev) => !prev)}
@@ -1443,6 +2048,22 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                       <Replace className="h-3.5 w-3.5" />
                       <span className="hidden sm:inline">Replace</span>
                     </button>
+
+                    {/* Quick Link to Global Search */}
+                    {onOpenGlobalSearch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSearchOpen(false);
+                          onOpenGlobalSearch();
+                        }}
+                        title="Search across all files in workspace (Ctrl+Shift+F)"
+                        className="p-1 px-1.5 rounded text-[11px] font-mono flex items-center gap-1 bg-[#1f6feb]/20 text-[#58a6ff] hover:text-white hover:bg-[#1f6feb]/35 border border-[#1f6feb]/40 transition-colors"
+                      >
+                        <FileSearch className="h-3.5 w-3.5" />
+                        <span className="hidden md:inline">Global (Ctrl+Shift+F)</span>
+                      </button>
+                    )}
                   </div>
 
                   <button
@@ -1733,29 +2354,122 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
           </div>
         </div>
 
-        {/* AI Copilot Drawer Overlay - Redesigned Modern Component */}
-        <UmakraftAiCopilotPanel
-          isOpen={isAiModalOpen}
-          onClose={() => {
-            if (onCloseAiModal) onCloseAiModal();
-          }}
-          currentFile={currentFile}
-          allFiles={sandboxFiles}
-          onSelectSnippetFile={(path) => {
-            setSelectedFilePath(path);
-          }}
-          workspaceScope="sandbox"
-          messages={messages}
-          onSendMessage={(customPrompt, img, useWebSearch) => handleSendAiPrompt(customPrompt, img, useWebSearch)}
-          isAiLoading={isAiLoading}
-          aiConfig={aiConfig}
-          onOpenAiSettings={() => setIsAiSettingsOpen(true)}
-          onApplyCode={(code) => handleApplySuggestedCode(code)}
-          onOpenScanner={() => setIsCameraScannerOpen(true)}
-          onOpenWebSearchModal={() => setIsWebDocsSearchOpen(true)}
-          editorContent={editorContent}
-        />
+          {/* DOCKED SIDE-BY-SIDE SPLIT COPILOT (No overlap with workspace editor!) */}
+          {isAiModalOpen && copilotLayoutMode === 'split' && (
+            <div className="w-full lg:w-[380px] xl:w-[440px] 2xl:w-[480px] border-t lg:border-t-0 lg:border-l border-[#30363d] h-[45vh] lg:h-full flex flex-col shrink-0 bg-[#0d1117] z-20 shadow-2xl animate-in slide-in-from-right-4 duration-150">
+              <UmakraftAiCopilotPanel
+                isOpen={isAiModalOpen}
+                onClose={() => {
+                  if (onCloseAiModal) onCloseAiModal();
+                }}
+                layoutMode="split"
+                onChangeLayoutMode={(mode) => {
+                  setCopilotLayoutMode(mode);
+                  try {
+                    localStorage.setItem('umakraft_copilot_layout_mode', mode);
+                  } catch {}
+                }}
+                currentFile={currentFile}
+                allFiles={sandboxFiles}
+                onSelectSnippetFile={(path) => {
+                  setSelectedFilePath(path);
+                }}
+                workspaceScope="sandbox"
+                messages={messages}
+                onSendMessage={(customPrompt, img, useWebSearch) => handleSendAiPrompt(customPrompt, img, useWebSearch)}
+                isAiLoading={isAiLoading}
+                aiConfig={aiConfig}
+                onOpenAiSettings={() => setIsAiSettingsOpen(true)}
+                onApplyCode={(code) => handleApplySuggestedCode(code)}
+                onOpenScanner={() => setIsCameraScannerOpen(true)}
+                onOpenWebSearchModal={() => setIsWebDocsSearchOpen(true)}
+                editorContent={editorContent}
+                unrestrainedMode={isUnrestrainedMode}
+                onToggleUnrestrainedMode={(enabled) => {
+                  setIsUnrestrainedModeState(enabled);
+                  setIsUnrestrainedMode(enabled);
+                }}
+              />
+            </div>
+          )}
+
+          {/* DOCKED BOTTOM COPILOT (Code on top, Copilot on bottom - No overlap!) */}
+          {isAiModalOpen && copilotLayoutMode === 'bottom' && (
+            <div className="h-72 sm:h-80 md:h-96 w-full border-t border-[#30363d] flex flex-col shrink-0 bg-[#0d1117] z-20 shadow-2xl animate-in slide-in-from-bottom-4 duration-150">
+              <UmakraftAiCopilotPanel
+                isOpen={isAiModalOpen}
+                onClose={() => {
+                  if (onCloseAiModal) onCloseAiModal();
+                }}
+                layoutMode="bottom"
+                onChangeLayoutMode={(mode) => {
+                  setCopilotLayoutMode(mode);
+                  try {
+                    localStorage.setItem('umakraft_copilot_layout_mode', mode);
+                  } catch {}
+                }}
+                currentFile={currentFile}
+                allFiles={sandboxFiles}
+                onSelectSnippetFile={(path) => {
+                  setSelectedFilePath(path);
+                }}
+                workspaceScope="sandbox"
+                messages={messages}
+                onSendMessage={(customPrompt, img, useWebSearch) => handleSendAiPrompt(customPrompt, img, useWebSearch)}
+                isAiLoading={isAiLoading}
+                aiConfig={aiConfig}
+                onOpenAiSettings={() => setIsAiSettingsOpen(true)}
+                onApplyCode={(code) => handleApplySuggestedCode(code)}
+                onOpenScanner={() => setIsCameraScannerOpen(true)}
+                onOpenWebSearchModal={() => setIsWebDocsSearchOpen(true)}
+                editorContent={editorContent}
+                unrestrainedMode={isUnrestrainedMode}
+                onToggleUnrestrainedMode={(enabled) => {
+                  setIsUnrestrainedModeState(enabled);
+                  setIsUnrestrainedMode(enabled);
+                }}
+              />
+            </div>
+          )}
+        </div>
       </div>
+
+        {/* FULLSCREEN FOCUS OVERLAY COPILOT (Only active when in full mode) */}
+        {isAiModalOpen && copilotLayoutMode === 'full' && (
+          <UmakraftAiCopilotPanel
+            isOpen={isAiModalOpen}
+            onClose={() => {
+              if (onCloseAiModal) onCloseAiModal();
+            }}
+            layoutMode="full"
+            onChangeLayoutMode={(mode) => {
+              setCopilotLayoutMode(mode);
+              try {
+                localStorage.setItem('umakraft_copilot_layout_mode', mode);
+              } catch {}
+            }}
+            currentFile={currentFile}
+            allFiles={sandboxFiles}
+            onSelectSnippetFile={(path) => {
+              setSelectedFilePath(path);
+            }}
+            workspaceScope="sandbox"
+            messages={messages}
+            onSendMessage={(customPrompt, img, useWebSearch) => handleSendAiPrompt(customPrompt, img, useWebSearch)}
+            isAiLoading={isAiLoading}
+            aiConfig={aiConfig}
+            onOpenAiSettings={() => setIsAiSettingsOpen(true)}
+            onApplyCode={(code) => handleApplySuggestedCode(code)}
+            onOpenScanner={() => setIsCameraScannerOpen(true)}
+            onOpenWebSearchModal={() => setIsWebDocsSearchOpen(true)}
+            editorContent={editorContent}
+            unrestrainedMode={isUnrestrainedMode}
+            onToggleUnrestrainedMode={(enabled) => {
+              setIsUnrestrainedModeState(enabled);
+              setIsUnrestrainedMode(enabled);
+            }}
+          />
+        )}
 
       {/* Camera & Image AI Code Scanner Modal */}
       <CameraCodeScannerModal
@@ -1867,6 +2581,21 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
           setAiConfig(newCfg);
           saveAiConfig(newCfg);
         }}
+      />
+
+      {/* Sandbox File System Undo/Redo & Version Timeline History Modal */}
+      <UndoRedoHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        snapshots={historyState.snapshots}
+        currentIndex={historyState.currentIndex}
+        canUndo={historyState.canUndo}
+        canRedo={historyState.canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onJumpToSnapshot={handleJumpToSnapshot}
+        onClearHistory={handleClearHistory}
+        currentFileContent={editorContent}
       />
     </div>
   );

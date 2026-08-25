@@ -1,4 +1,5 @@
 import { ProjectFile } from '../types';
+import { MemoryService } from './turso/memoryService';
 
 export interface AiMemoryItem {
   id: string;
@@ -74,6 +75,21 @@ export class AiRagMemoryService {
    */
   static getMemories(): AiMemoryItem[] {
     try {
+      const knowledge = MemoryService.getKnowledge();
+      if (knowledge.length > 0) {
+        return knowledge.map((k) => ({
+          id: k.id,
+          category: (k.category === 'rule' || k.category === 'architecture' || k.category === 'learning'
+            ? k.category
+            : 'rule') as any,
+          key: k.topic,
+          value: k.content,
+          confidence: k.confidence,
+          createdAt: k.createdAt,
+          updatedAt: k.updatedAt
+        }));
+      }
+
       const raw = localStorage.getItem(MEMORY_STORAGE_KEY);
       if (!raw) {
         this.saveMemories(DEFAULT_INITIAL_MEMORIES);
@@ -97,38 +113,36 @@ export class AiRagMemoryService {
   }
 
   /**
-   * Add or update a memory rule / learned preference
+   * Add or update a memory rule / learned preference in Turso & Local cache
    */
-  static remember(key: string, value: string, category: 'rule' | 'preference' | 'architecture' | 'learning' = 'learning'): AiMemoryItem {
-    const list = this.getMemories();
-    const existingIdx = list.findIndex(m => m.key.toLowerCase() === key.toLowerCase());
-    
-    const now = new Date().toISOString();
-    let item: AiMemoryItem;
+  static remember(
+    key: string,
+    value: string,
+    category: 'rule' | 'preference' | 'architecture' | 'learning' = 'learning'
+  ): AiMemoryItem {
+    // Save to Turso memory service
+    const savedRecord = MemoryService.addOrUpdateKnowledge({
+      category: category as any,
+      topic: key,
+      content: value,
+      confidence: 0.95,
+      tags: [category, 'agent-learned']
+    });
 
-    if (existingIdx >= 0) {
-      item = {
-        ...list[existingIdx],
-        value,
-        category,
-        confidence: Math.min(1.0, list[existingIdx].confidence + 0.1),
-        updatedAt: now
-      };
-      list[existingIdx] = item;
-    } else {
-      item = {
-        id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        category,
-        key,
-        value,
-        confidence: 0.9,
-        createdAt: now,
-        updatedAt: now
-      };
-      list.push(item);
-    }
+    const item: AiMemoryItem = {
+      id: savedRecord.id,
+      category,
+      key: savedRecord.topic,
+      value: savedRecord.content,
+      confidence: savedRecord.confidence,
+      createdAt: savedRecord.createdAt,
+      updatedAt: savedRecord.updatedAt
+    };
 
+    const list = this.getMemories().filter((m) => m.id !== item.id);
+    list.unshift(item);
     this.saveMemories(list);
+
     return item;
   }
 
@@ -136,7 +150,8 @@ export class AiRagMemoryService {
    * Remove a specific memory item
    */
   static forget(id: string): void {
-    const list = this.getMemories().filter(m => m.id !== id);
+    MemoryService.deleteKnowledge(id);
+    const list = this.getMemories().filter((m) => m.id !== id);
     this.saveMemories(list);
   }
 
@@ -152,33 +167,51 @@ export class AiRagMemoryService {
    */
   static autoLearnFromInteraction(prompt: string, acceptedCode?: string): void {
     const p = prompt.toLowerCase();
-    
-    // Auto-detect style preferences
+
+    // Auto-detect style preferences and save to Turso
     if (p.includes('use compose') || p.includes('jetpack compose')) {
       this.remember('UI Framework Preference', 'User prefers Jetpack Compose over XML layouts.', 'preference');
+      MemoryService.addOrUpdatePreference({
+        category: 'framework',
+        keyName: 'UI Toolkit Preference',
+        preferenceValue: 'Jetpack Compose components'
+      });
     } else if (p.includes('use coroutines') || p.includes('flow')) {
       this.remember('Async Paradigm', 'User prefers Kotlin Coroutines & StateFlow for asynchronous logic.', 'preference');
+      MemoryService.addOrUpdatePreference({
+        category: 'concurrency',
+        keyName: 'Async Architecture',
+        preferenceValue: 'Kotlin Coroutines & StateFlow'
+      });
     } else if (p.includes('c++20') || p.includes('modern c++')) {
       this.remember('C++ Standard', 'User prefers Modern C++20 with std::span and concepts.', 'preference');
+      MemoryService.addOrUpdatePreference({
+        category: 'code_style',
+        keyName: 'NDK C++ Standard',
+        preferenceValue: 'Modern C++20 with concepts'
+      });
     }
   }
 
   /**
-   * RAG Vector / TF-IDF Search across all project files
-   * Matches keywords, symbols, module names, and function declarations
+   * RAG Vector / TF-IDF & Turso Memory Search across workspace
    */
   static searchProjectRag(query: string, allFiles: ProjectFile[], maxSnippets: number = 4): RagContextResult {
+    // 1. First query Turso Memory RAG (Knowledge, Preferences, File Index Metadata, Project Architecture)
+    const tursoRag = MemoryService.queryRagMemory(query, maxSnippets);
+
+    // 2. Scan file snippets locally if query has tokens
     const qTokens = query
       .toLowerCase()
       .replace(/[^a-z0-9_.-]/g, ' ')
       .split(/\s+/)
-      .filter(t => t.length > 2);
+      .filter((t) => t.length > 2);
 
     if (qTokens.length === 0 || allFiles.length === 0) {
       return {
         snippets: [],
-        contextPromptBlock: '',
-        memoryBlock: this.formatMemoriesForPrompt(),
+        contextPromptBlock: tursoRag.formattedContextBlock,
+        memoryBlock: tursoRag.formattedContextBlock,
         totalFilesSearched: allFiles.length
       };
     }
@@ -191,7 +224,6 @@ export class AiRagMemoryService {
       let score = 0;
       const matchedLineList: string[] = [];
 
-      // Path & filename relevance
       const lowerPath = file.path.toLowerCase();
       const lowerName = file.name.toLowerCase();
 
@@ -201,7 +233,6 @@ export class AiRagMemoryService {
         if (file.module && file.module.toLowerCase().includes(token)) score += 6;
       }
 
-      // Content scanning
       lines.forEach((line, idx) => {
         const lowerLine = line.toLowerCase();
         let lineHits = 0;
@@ -221,7 +252,6 @@ export class AiRagMemoryService {
       });
 
       if (score > 0) {
-        // Boost if file matches common code keywords
         if (file.name.endsWith('.kt') || file.name.endsWith('.cpp') || file.name.endsWith('.gradle.kts')) {
           score += 3;
         }
@@ -233,12 +263,10 @@ export class AiRagMemoryService {
       }
     }
 
-    // Sort by relevance score descending
     scoredFiles.sort((a, b) => b.score - a.score);
     const topMatches = scoredFiles.slice(0, maxSnippets);
 
-    const snippets: RagDocumentSnippet[] = topMatches.map(m => {
-      // Extract representative snippet
+    const snippets: RagDocumentSnippet[] = topMatches.map((m) => {
       const content = m.file.content || '';
       const lines = content.split('\n');
       const snippetSlice = lines.slice(0, 35).join('\n');
@@ -253,9 +281,9 @@ export class AiRagMemoryService {
       };
     });
 
-    // Build RAG Context Block
     const ragContextLines: string[] = [
-      '### 📚 RAG RETRIEVED WORKSPACE CONTEXT (Knowledge Base & Indexed Files):'
+      tursoRag.formattedContextBlock,
+      '\n### 📚 ACTIVE RELEVANT CODE SNIPPETS (Local Workspace):'
     ];
 
     topMatches.forEach((match, idx) => {
@@ -269,12 +297,10 @@ export class AiRagMemoryService {
       );
     });
 
-    const memoryBlock = this.formatMemoriesForPrompt();
-
     return {
       snippets,
       contextPromptBlock: ragContextLines.join('\n'),
-      memoryBlock,
+      memoryBlock: tursoRag.formattedContextBlock,
       totalFilesSearched: allFiles.length
     };
   }
@@ -283,12 +309,7 @@ export class AiRagMemoryService {
    * Format long-term memories into system instructions
    */
   static formatMemoriesForPrompt(): string {
-    const memories = this.getMemories();
-    if (memories.length === 0) return '';
-
-    return [
-      '### 🧠 ACTIVE AI MEMORY & ARCHITECTURAL RULES (Learned Preferences & Constraints):',
-      ...memories.map(m => `- [${m.category.toUpperCase()}] **${m.key}**: ${m.value}`)
-    ].join('\n');
+    const tursoRag = MemoryService.queryRagMemory('', 6);
+    return tursoRag.formattedContextBlock;
   }
 }

@@ -1,4 +1,5 @@
 import { AiCopilotConfig, AiProviderType, AiModelOption } from '../types';
+import { MemoryService } from './turso/memoryService';
 
 export type { AiProviderType };
 
@@ -316,8 +317,38 @@ export const DEFAULT_AI_CONFIG: AiCopilotConfig = {
   maxTokens: 4096,
   autoSpeak: false,
   speechRate: 1.0,
-  speechPitch: 1.0
+  speechPitch: 1.0,
+  unrestrainedMode: false
 };
+
+export const UNRESTRAINED_MODE_KEY = 'umakraft_ai_unrestrained_mode';
+export const COPILOT_LAYOUT_KEY = 'umakraft_copilot_layout_mode';
+
+export function getIsUnrestrainedMode(): boolean {
+  try {
+    const raw = localStorage.getItem(UNRESTRAINED_MODE_KEY);
+    if (raw !== null) {
+      return raw === 'true';
+    }
+    const config = getSavedAiConfig();
+    return Boolean(config.unrestrainedMode);
+  } catch {
+    return false;
+  }
+}
+
+export function setIsUnrestrainedMode(enabled: boolean): void {
+  try {
+    localStorage.setItem(UNRESTRAINED_MODE_KEY, String(enabled));
+    const config = getSavedAiConfig();
+    saveAiConfig({
+      ...config,
+      unrestrainedMode: enabled
+    });
+  } catch (e) {
+    console.error('Failed to set unrestrained mode:', e);
+  }
+}
 
 export function getSavedAiConfig(): AiCopilotConfig {
   try {
@@ -408,10 +439,17 @@ export async function requestAiAssist(params: {
     ...(params.configOverride || {})
   };
 
+  // Retrieve Turso Long-Term Memory via RAG if not explicitly passed
+  let dynamicTursoMemory = params.memoryContext || '';
+  if (!dynamicTursoMemory && params.prompt) {
+    const ragResult = MemoryService.queryRagMemory(params.prompt, 5);
+    dynamicTursoMemory = ragResult.formattedContextBlock;
+  }
+
   const combinedContext = [
     params.context || '',
     params.ragContext || '',
-    params.memoryContext || ''
+    dynamicTursoMemory
   ].filter(Boolean).join('\n\n');
 
   const res = await fetch('/api/ai-assist', {

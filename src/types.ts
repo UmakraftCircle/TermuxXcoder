@@ -59,6 +59,8 @@ export type AiProviderType =
   | 'opencode'
   | 'gemini';
 
+export type CopilotLayoutMode = 'split' | 'bottom' | 'full';
+
 export interface AiCopilotConfig {
   provider: AiProviderType;
   model: string;
@@ -71,6 +73,7 @@ export interface AiCopilotConfig {
   speechRate?: number;
   speechPitch?: number;
   selectedVoiceURI?: string;
+  unrestrainedMode?: boolean;
 }
 
 export interface AiModelOption {

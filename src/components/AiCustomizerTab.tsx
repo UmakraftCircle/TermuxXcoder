@@ -21,10 +21,13 @@ import {
   AlertCircle,
   Sliders,
   PlusCircle,
-  ArrowRight
+  ArrowRight,
+  Database,
+  Cloud
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ProjectFile, AiProviderType, AiCopilotConfig } from '../types';
+import { MemoryService } from '../utils/turso/memoryService';
 import {
   AI_PROVIDERS,
   DEFAULT_AI_CONFIG,
@@ -255,6 +258,34 @@ export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFi
           <p className="text-xs text-[#8b949e] mt-1 leading-relaxed">
             The AI Copilot is strictly restricted to editing files inside the <strong>Sandbox</strong> and <strong>project workspaces</strong>. Internal app files, core system UI, storage vault, and app settings are permanently read-only and cannot be modified by AI under any circumstances.
           </p>
+        </div>
+      </div>
+
+      {/* Turso Memory & RAG Status Banner */}
+      <div className="bg-[#161b22] border border-[#30363d] hover:border-[#00eb87]/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#00eb87] to-[#0094f7] p-0.5 flex-shrink-0">
+            <div className="h-full w-full bg-[#0d1117] rounded-[10px] flex items-center justify-center">
+              <Database className="h-5 w-5 text-[#00eb87]" />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-white font-mono">TURSO SQLite LONG-TERM MEMORY</h4>
+              <span className="text-[9px] px-2 py-0.2 rounded-full bg-[#00eb87]/20 text-[#00eb87] border border-[#00eb87]/40 font-bold uppercase">
+                Active & Synced
+              </span>
+            </div>
+            <p className="text-[11px] text-[#8b949e]">
+              RAG memory engine automatically injects architectural rules, symbol indices & preferences into prompts.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-mono text-[#8b949e] px-2.5 py-1 rounded-lg bg-[#0d1117] border border-[#30363d]">
+            {MemoryService.getKnowledge().length} rules • {MemoryService.getFileIndex().length} files indexed
+          </div>
         </div>
       </div>
 

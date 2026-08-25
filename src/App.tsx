@@ -42,9 +42,11 @@ import { ReleaseNotesTab } from './components/ReleaseNotesTab';
 import { TerminalPageTab } from './components/TerminalPageTab';
 import { StoragePageTab } from './components/StoragePageTab';
 import { LayoutDesignerTab } from './components/LayoutDesignerTab';
+import { TursoMemoryTab } from './components/TursoMemoryTab';
 import { SlideTerminalDrawer } from './components/SlideTerminalDrawer';
 import { QuickPushModal } from './components/QuickPushModal';
 import { AndroidPermissionsModal } from './components/AndroidPermissionsModal';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
 
 import { exportProjectToZip, downloadBlob } from './utils/zipExporter';
 import {
@@ -64,6 +66,7 @@ export type AppFunctionTab =
   | 'diagnostics'
   | 'keystore'
   | 'docs'
+  | 'turso'
   | 'ai';
 
 export default function App() {
@@ -81,11 +84,24 @@ export default function App() {
   const [isSlideDrawerOpen, setIsSlideDrawerOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
 
   // Sync sandbox files with localStorage
   useEffect(() => {
     saveSandboxFiles(sandboxFiles);
   }, [sandboxFiles]);
+
+  // Global Keyboard Shortcut: Ctrl+Shift+F or Cmd+Shift+F for Global Search anywhere in app
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setIsGlobalSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   const handleSelectFileToView = (file: ProjectFile) => {
     if (file.isSandbox || file.storageScope === 'sandbox_user') {
@@ -94,6 +110,36 @@ export default function App() {
     } else {
       setActiveTab('storage');
     }
+  };
+
+  const handleSelectFileAndLine = (filePath: string, _lineNumber?: number) => {
+    // Check if target file exists in sandbox or app files
+    const inSandbox = sandboxFiles.some((f) => f.path === filePath);
+    if (inSandbox) {
+      setActiveSandboxFilePath(filePath);
+      setActiveTab('coder');
+    } else {
+      const inApp = appFiles.find((f) => f.path === filePath);
+      if (inApp) {
+        // If it's an app file, we can also view in storage or clone to sandbox for editing
+        setActiveTab('storage');
+      } else {
+        setActiveSandboxFilePath(filePath);
+        setActiveTab('coder');
+      }
+    }
+  };
+
+  const handleBatchUpdateFiles = (updates: { path: string; newContent: string }[]) => {
+    const updateMap = new Map(updates.map((u) => [u.path, u.newContent]));
+    setSandboxFiles((prev) =>
+      prev.map((f) => {
+        if (updateMap.has(f.path)) {
+          return { ...f, content: updateMap.get(f.path)! };
+        }
+        return f;
+      })
+    );
   };
 
   const handleUpdateSandboxContent = (path: string, newContent: string) => {
@@ -134,6 +180,15 @@ export default function App() {
     handleAddMultipleSandboxFiles(SAMPLE_SANDBOX_DEMO_FILES);
   };
 
+  const handleRestoreFilesSnapshot = (files: ProjectFile[], targetPath?: string) => {
+    setSandboxFiles(files);
+    if (targetPath) {
+      setActiveSandboxFilePath(targetPath);
+    } else if (files.length > 0) {
+      setActiveSandboxFilePath(files[0].path);
+    }
+  };
+
   const handleAddAppFile = (newFile: ProjectFile) => {
     setAppFiles((prev) => {
       const existing = prev.findIndex((f) => f.path === newFile.path);
@@ -168,6 +223,7 @@ export default function App() {
         activeTab={activeTab}
         onOpenQuickPush={() => setIsQuickPushOpen(true)}
         onOpenPermissions={() => setIsPermissionsModalOpen(true)}
+        onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
         onToggleSlideDrawer={() => setIsSlideDrawerOpen(!isSlideDrawerOpen)}
         isSlideDrawerOpen={isSlideDrawerOpen}
         onGoToCoder={() => setActiveTab('coder')}
@@ -188,6 +244,8 @@ export default function App() {
             onClearSandbox={handleClearSandbox}
             onLoadSampleSandbox={handleLoadSampleSandbox}
             onOpenSettings={() => setActiveTab('ai')}
+            onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
+            onRestoreFilesSnapshot={handleRestoreFilesSnapshot}
             isAiModalOpen={isAiModalOpen}
             onCloseAiModal={() => setIsAiModalOpen(false)}
             onOpenAiModal={() => setIsAiModalOpen(true)}
@@ -274,6 +332,17 @@ export default function App() {
           <div className="h-full overflow-y-auto">
             <AiCustomizerTab
               files={appFiles}
+              onAddFile={handleAddAppFile}
+            />
+          </div>
+        )}
+
+        {/* 8b. Turso Memory Database & RAG */}
+        {activeTab === 'turso' && (
+          <div className="h-full overflow-hidden">
+            <TursoMemoryTab
+              files={[...appFiles, ...sandboxFiles]}
+              onGoToCoder={() => setActiveTab('coder')}
               onAddFile={handleAddAppFile}
             />
           </div>
@@ -427,6 +496,15 @@ export default function App() {
           setActiveTab('coder');
           setIsAiModalOpen(true);
         }}
+      />
+
+      {/* Global Search Index & Full-Text Search Modal */}
+      <GlobalSearchModal
+        isOpen={isGlobalSearchOpen}
+        onClose={() => setIsGlobalSearchOpen(false)}
+        files={[...sandboxFiles, ...appFiles]}
+        onSelectFileAndLine={handleSelectFileAndLine}
+        onBatchUpdateFiles={handleBatchUpdateFiles}
       />
     </div>
   );

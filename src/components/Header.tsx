@@ -6,7 +6,8 @@ import {
   Code2,
   Sparkles,
   ShieldCheck,
-  Camera
+  Camera,
+  Search
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { exportProjectToZip, downloadBlob } from '../utils/zipExporter';
@@ -19,6 +20,7 @@ interface HeaderProps {
   onToggleSlideDrawer: () => void;
   onGoToCoder?: () => void;
   onOpenPermissions?: () => void;
+  onOpenGlobalSearch?: () => void;
   isSlideDrawerOpen?: boolean;
 }
 
@@ -29,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSlideDrawer,
   onGoToCoder,
   onOpenPermissions,
+  onOpenGlobalSearch,
   isSlideDrawerOpen
 }) => {
   const [isExporting, setIsExporting] = useState(false);
@@ -104,6 +107,19 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Section: Action Controls */}
         <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Global Search & Indexer Button */}
+          {onOpenGlobalSearch && (
+            <button
+              id="btn-global-search"
+              onClick={onOpenGlobalSearch}
+              title="Global Search Index across all files (Ctrl+Shift+F)"
+              aria-label="Global Search"
+              className="flex items-center justify-center h-10 w-10 min-h-[44px] min-w-[44px] rounded-xl bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] hover:border-[#58a6ff]/40 text-[#c9d1d9] hover:text-[#58a6ff] transition-all active:scale-95 group relative"
+            >
+              <Search className="h-5 w-5 transition-transform group-hover:scale-110" />
+            </button>
+          )}
+
           {/* Permissions & Scopes Explainer Button */}
           {onOpenPermissions && (
             <button
