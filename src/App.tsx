@@ -245,7 +245,12 @@ export default function App() {
   };
 
   if (showSplash) {
-    return <UmakraftSplashScreen onComplete={() => setShowSplash(false)} />;
+    return (
+      <UmakraftSplashScreen
+        files={[...appFiles, ...sandboxFiles]}
+        onComplete={() => setShowSplash(false)}
+      />
+    );
   }
 
   return (

@@ -5,6 +5,7 @@ import { exec } from "child_process";
 import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { registerTermuxRoutes } from "./server/termuxService";
 
 dotenv.config();
 
@@ -16,6 +17,9 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json({ limit: "10mb" }));
+
+  // Mount Full Native Termux Runtime & PTY subsystem
+  registerTermuxRoutes(app);
 
   // Health and container status telemetry
   app.get("/api/health", (req, res) => {
@@ -1371,7 +1375,7 @@ const response = await ai.models.generateContent({
     });
   });
 
-  // Multi-Provider AI Copilot inference route (Gemini 3.7 Flash, Qwen 1.5 Local, Groq, OpenAI, OpenRouter, OpenCode)
+  // Multi-Provider AI Copilot inference route (Hardcoded Local default.gguf as primary brain)
   app.post("/api/ai-assist", async (req, res) => {
     try {
       const {
@@ -1379,8 +1383,8 @@ const response = await ai.models.generateContent({
         currentFile,
         context,
         history = [],
-        provider = "gemini",
-        model,
+        provider = "qwen_local",
+        model = "default.gguf",
         apiKey,
         customEndpoint,
         temperature = 0.2,

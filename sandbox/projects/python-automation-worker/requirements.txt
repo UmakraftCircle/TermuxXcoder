@@ -1,0 +1,4 @@
+# UmaKraft Python Worker Requirements
+# Compatible with Termux Python 3.11+
+requests>=2.31.0
+urllib3>=2.2.1

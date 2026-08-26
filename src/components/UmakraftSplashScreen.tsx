@@ -1,42 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Terminal, Code2, Cpu, Zap, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Terminal, Code2, Cpu, Zap, ArrowRight, CheckCircle2, Bot } from 'lucide-react';
+import { offlinePreloadService } from '../utils/offlinePreloadService';
+import { ProjectFile } from '../types';
 
 interface UmakraftSplashScreenProps {
   onComplete: () => void;
+  files?: ProjectFile[];
 }
 
-export const UmakraftSplashScreen: React.FC<UmakraftSplashScreenProps> = ({ onComplete }) => {
+export const UmakraftSplashScreen: React.FC<UmakraftSplashScreenProps> = ({ onComplete, files = [] }) => {
   const [progress, setProgress] = useState(0);
   const [stepIndex, setStepIndex] = useState(0);
   const [isFadingOut, setIsFadingOut] = useState(false);
 
   const bootSteps = [
-    'Initializing Umakraft Core Engine...',
-    'Loading Sora Editor 0.23.5 Grammar Syntaxes...',
-    'Mounting Termux /dev/ptmx Native PTY Bridge...',
-    'Connecting Gemini AI Coding Assistant...',
-    'Syncing 10-Module Android Project Architecture...',
-    'Umakraft AI Coder Ready.'
+    '📁 Extracting & Verifying /models/default.gguf...',
+    '⚡ Initializing Termux POSIX (/usr/bin/bash, Node, Python, Git)...',
+    '🧠 Hardcoded Local AI Ready (/models/default.gguf)...',
+    '📦 Pre-caching Turso Local Memory & RAG...',
+    '📝 Loading Sora Editor 0.23.5 Syntaxes...',
+    '✓ Embedded Offline IDE & Brain Active.'
   ];
 
   useEffect(() => {
+    // Kick off real background preloading for Terminal and Offline AI
+    offlinePreloadService.preloadAll(files);
+
     const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) {
           clearInterval(interval);
           setTimeout(() => {
             setIsFadingOut(true);
-            setTimeout(onComplete, 500);
-          }, 300);
+            setTimeout(onComplete, 400);
+          }, 200);
           return 100;
         }
-        const next = prev + Math.floor(Math.random() * 18) + 10;
+        const next = prev + Math.floor(Math.random() * 18) + 12;
         return next > 100 ? 100 : next;
       });
-    }, 220);
+    }, 180);
 
     return () => clearInterval(interval);
-  }, [onComplete]);
+  }, [onComplete, files]);
 
   useEffect(() => {
     if (progress < 25) setStepIndex(0);
@@ -112,16 +118,16 @@ export const UmakraftSplashScreen: React.FC<UmakraftSplashScreenProps> = ({ onCo
           {/* Feature Chips */}
           <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono text-[#8b949e]">
             <div className="flex items-center justify-center gap-1 p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]/60 truncate">
-              <Code2 className="h-3 w-3 text-[#58a6ff]" />
+              <Bot className="h-3 w-3 text-[#3fb950]" />
+              <span>Local Brain</span>
+            </div>
+            <div className="flex items-center justify-center gap-1 p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]/60 truncate">
+              <Terminal className="h-3 w-3 text-[#58a6ff]" />
+              <span>Termux PTY</span>
+            </div>
+            <div className="flex items-center justify-center gap-1 p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]/60 truncate">
+              <Code2 className="h-3 w-3 text-[#bc8cff]" />
               <span>Sora 0.23</span>
-            </div>
-            <div className="flex items-center justify-center gap-1 p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]/60 truncate">
-              <Terminal className="h-3 w-3 text-[#3fb950]" />
-              <span>PTY Native</span>
-            </div>
-            <div className="flex items-center justify-center gap-1 p-1.5 rounded-lg bg-[#0d1117] border border-[#30363d]/60 truncate">
-              <Sparkles className="h-3 w-3 text-[#bc8cff]" />
-              <span>Gemini AI</span>
             </div>
           </div>
         </div>

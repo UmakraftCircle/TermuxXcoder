@@ -244,54 +244,58 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
         onTouchEnd={handleDrawerTouchEnd}
       >
         {/* Drawer Header */}
-        <div className="px-4 py-3 bg-[#161b22] border-b border-[#30363d] flex items-center justify-between gap-3 flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-[#1f6feb] via-[#a371f7] to-[#238636] p-0.5 shadow-md flex items-center justify-center">
+        <div className="px-3.5 py-2.5 bg-[#161b22] border-b border-[#30363d] flex items-center justify-between gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-[#1f6feb] via-[#a371f7] to-[#238636] p-0.5 shadow-md flex items-center justify-center shrink-0">
               <div className="h-full w-full bg-[#0d1117] rounded-[10px] flex items-center justify-center">
                 <Bot className="h-4 w-4 text-[#58a6ff]" />
               </div>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-[#f0f6fc] font-mono">
-                  UMAKRAFT AI COPILOT
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="text-xs sm:text-sm font-bold text-[#f0f6fc] font-mono tracking-tight truncate">
+                  UMAKRAFT COPILOT
                 </h3>
-                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30 font-semibold">
-                  {currentProviderMeta.shortName}
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#3fb950]/30 font-semibold shrink-0">
+                  {config.provider === 'qwen_local' ? 'Local AI' : currentProviderMeta.shortName}
                 </span>
               </div>
-              <p className="text-[11px] text-[#8b949e]">
-                Model: <strong className="text-[#c9d1d9]">{config.model}</strong>
+              <p className="text-[10px] text-[#8b949e] font-mono truncate">
+                {config.model}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Quick Engine Selector Pill */}
             <button
               onClick={() => setShowConfigPopover(!showConfigPopover)}
-              className="px-2.5 py-1.5 min-h-[36px] bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white rounded-xl border border-[#30363d] text-xs font-semibold flex items-center gap-1.5 transition-all"
-              title="Change AI Engine / Settings"
+              className={`px-2.5 py-1 min-h-[34px] rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                showConfigPopover
+                  ? 'bg-[#1f6feb] text-white border-[#58a6ff]'
+                  : 'bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] hover:text-white border-[#30363d]'
+              }`}
+              title="Change AI Engine"
             >
               <Sliders className="h-3.5 w-3.5 text-[#58a6ff]" />
-              <span className="hidden xs:inline">Engine</span>
+              <span className="text-[11px]">Engine</span>
             </button>
 
             {/* Close Drawer Button */}
             <button
               onClick={onClose}
-              className="p-2 min-h-[40px] min-w-[40px] rounded-xl bg-[#21262d] hover:bg-[#da3633]/20 text-[#8b949e] hover:text-[#ff7b72] border border-[#30363d] hover:border-[#da3633]/50 flex items-center justify-center transition-all"
+              className="p-1.5 min-h-[34px] min-w-[34px] rounded-xl bg-[#21262d] hover:bg-[#da3633]/20 text-[#8b949e] hover:text-[#ff7b72] border border-[#30363d] hover:border-[#da3633]/50 flex items-center justify-center transition-all"
               title="Close Drawer"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        {/* Engine Switcher Quick Dropdown */}
+        {/* Engine Switcher Compact Accordion */}
         {showConfigPopover && (
-          <div className="bg-[#161b22] border-b border-[#30363d] p-3 animate-in fade-in space-y-2 flex-shrink-0">
-            <div className="flex items-center justify-between text-xs font-bold text-[#f0f6fc]">
+          <div className="bg-[#161b22] border-b border-[#30363d] p-2.5 animate-in fade-in space-y-2 flex-shrink-0">
+            <div className="flex items-center justify-between text-[11px] font-bold text-[#f0f6fc]">
               <span>Select AI Provider Engine</span>
               {onOpenFullSettings && (
                 <button
@@ -299,29 +303,32 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
                     setShowConfigPopover(false);
                     onOpenFullSettings();
                   }}
-                  className="text-[11px] text-[#58a6ff] hover:underline"
+                  className="text-[10px] text-[#58a6ff] hover:underline"
                 >
-                  Full AI Hub Settings & Key Setup &rarr;
+                  Full AI Hub Settings &rarr;
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               {(Object.keys(AI_PROVIDERS) as AiProviderType[]).map((pKey) => {
                 const p = AI_PROVIDERS[pKey];
                 const isSelected = config.provider === pKey;
                 return (
                   <button
                     key={pKey}
-                    onClick={() => handleProviderChange(pKey)}
-                    className={`p-2 rounded-xl text-left border transition-all text-xs flex flex-col justify-between ${
+                    onClick={() => {
+                      handleProviderChange(pKey);
+                      setShowConfigPopover(false);
+                    }}
+                    className={`p-1.5 rounded-lg text-left border transition-all text-[11px] flex flex-col justify-between ${
                       isSelected
                         ? 'bg-[#1f6feb]/20 border-[#58a6ff] text-white font-bold ring-1 ring-[#58a6ff]'
                         : 'bg-[#0d1117] border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'
                     }`}
                   >
-                    <span className="truncate">{p.shortName}</span>
-                    <span className="text-[9px] font-normal text-[#8b949e] mt-0.5">
-                      {p.requiresKey ? 'Key needed' : 'Free / Offline'}
+                    <span className="truncate font-semibold text-[11px]">{p.shortName}</span>
+                    <span className="text-[8.5px] font-normal text-[#8b949e] truncate">
+                      {p.requiresKey ? 'Key req.' : 'Offline'}
                     </span>
                   </button>
                 );
@@ -330,15 +337,15 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
           </div>
         )}
 
-        {/* Workspace Isolation Rule Banner */}
-        <div className="bg-[#161b22]/70 px-3.5 py-1.5 border-b border-[#30363d] flex items-center justify-between text-[11px] text-[#8b949e] font-mono flex-shrink-0">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck className="h-3.5 w-3.5 text-[#58a6ff]" />
-            <span>Target: <strong>sandbox/</strong> & <strong>workspace/</strong></span>
+        {/* Workspace Isolation Rule Micro Banner */}
+        <div className="bg-[#0d1117] px-3 py-1 border-b border-[#30363d]/80 flex items-center justify-between text-[10px] text-[#8b949e] font-mono flex-shrink-0">
+          <div className="flex items-center gap-1">
+            <ShieldCheck className="h-3 w-3 text-[#58a6ff]" />
+            <span className="truncate">Target: <strong>sandbox/</strong></span>
           </div>
           {activeFile && (
-            <span className="text-[10px] text-[#58a6ff] truncate max-w-[180px]">
-              Active: {activeFile.name}
+            <span className="text-[10px] text-[#58a6ff] bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d] truncate max-w-[150px]">
+              {activeFile.name}
             </span>
           )}
         </div>
@@ -438,12 +445,12 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
         </div>
 
         {/* Quick Suggestion Chips */}
-        <div className="px-3.5 py-2 bg-[#161b22] border-t border-[#30363d] flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-shrink-0">
+        <div className="px-2.5 py-1.5 bg-[#161b22] border-t border-[#30363d] flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-shrink-0">
           {quickPrompts.map((qp, idx) => (
             <button
               key={idx}
               onClick={() => handleSendMessage(qp.prompt)}
-              className="px-2.5 py-1 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff]/40 text-[#c9d1d9] hover:text-white text-[11px] font-mono whitespace-nowrap transition-all active:scale-95"
+              className="px-2 py-0.5 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff]/40 text-[#c9d1d9] hover:text-white text-[10.5px] font-mono whitespace-nowrap transition-all active:scale-95"
             >
               {qp.label}
             </button>
@@ -451,11 +458,11 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
         </div>
 
         {/* Input Bar */}
-        <div className="p-3 bg-[#161b22] border-t border-[#30363d] flex-shrink-0 space-y-2">
+        <div className="p-2.5 bg-[#161b22] border-t border-[#30363d] flex-shrink-0 space-y-1.5">
           <div className="relative flex items-center">
             <textarea
               ref={textareaRef}
-              rows={2}
+              rows={1}
               value={inputPrompt}
               onChange={(e) => setInputPrompt(e.target.value)}
               onKeyDown={(e) => {
@@ -464,22 +471,22 @@ export const AiCopilotDrawer: React.FC<AiCopilotDrawerProps> = ({
                   handleSendMessage();
                 }
               }}
-              placeholder={`Ask ${currentProviderMeta.shortName} (Enter to send, Shift+Enter for newline)...`}
-              className="w-full pl-3 pr-12 py-2.5 bg-[#0d1117] border border-[#30363d] rounded-xl text-xs sm:text-sm text-[#f0f6fc] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff] font-sans resize-none"
+              placeholder={`Ask ${config.provider === 'qwen_local' ? 'Local AI' : currentProviderMeta.shortName}...`}
+              className="w-full pl-3 pr-11 py-2 bg-[#0d1117] border border-[#30363d] rounded-xl text-xs sm:text-sm text-[#f0f6fc] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff] font-sans resize-none max-h-24"
             />
             <button
               onClick={() => handleSendMessage()}
               disabled={isSynthesizing || !inputPrompt.trim()}
-              className="absolute right-2.5 p-2 bg-[#1f6feb] hover:bg-[#388bfd] disabled:opacity-40 text-white rounded-lg shadow transition-all active:scale-95 flex items-center justify-center min-h-[36px] min-w-[36px]"
+              className="absolute right-1.5 p-1.5 bg-[#1f6feb] hover:bg-[#388bfd] disabled:opacity-40 text-white rounded-lg shadow transition-all active:scale-95 flex items-center justify-center min-h-[32px] min-w-[32px]"
               title="Send Prompt"
             >
-              <Send className="h-4 w-4" />
+              <Send className="h-3.5 w-3.5" />
             </button>
           </div>
 
-          <div className="flex items-center justify-between text-[10px] text-[#8b949e] font-mono px-1">
-            <span>Powered by {currentProviderMeta.name}</span>
-            <span>Workspace Protected</span>
+          <div className="flex items-center justify-between text-[9.5px] text-[#8b949e] font-mono px-1">
+            <span className="truncate">Core: {currentProviderMeta.shortName}</span>
+            <span className="shrink-0">Workspace Protected</span>
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 {
   "name": "TermuxXCoder - GitHub APK Build Studio",
-  "description": "Umakraft APK Build Studio: Comprehensive GitHub preparation, CI/CD pipeline generator, sliding PTY terminal, vision-powered code scanner, and multi-module Android project export tool.",
+  "description": "Native offline Android IDE with hardcoded embedded local AI (/models/default.gguf), Termux POSIX PTY runtime (bash, node, python, git, pkg), and offline modular Android code generator.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

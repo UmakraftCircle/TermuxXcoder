@@ -22,6 +22,25 @@ export interface DownloadableAiModel {
 
 export const OFFLINE_AI_MODELS: DownloadableAiModel[] = [
   {
+    id: 'default.gguf',
+    name: 'default.gguf (Embedded Core Local AI)',
+    provider: 'qwen_local',
+    format: 'GGUF',
+    sizeString: '1.18 GB',
+    sizeBytes: 1267200000,
+    quantization: 'Q4_K_M',
+    description: 'Permanently hardcoded local brain inside the APK (/models/default.gguf). Auto-loaded on startup, zero internet required.',
+    hfRepo: 'Qwen/Qwen1.5-Coder-1.8B-GGUF',
+    downloadUrl: '/models/default.gguf',
+    filename: 'default.gguf',
+    badge: 'Hardcoded Core / Embedded',
+    badgeColor: 'bg-[#238636]/20 text-[#3fb950] border-[#238636]/40',
+    recommendedFor: 'Primary Brain / Zero API Key / Native Offline',
+    targetDir: 'sandbox/models',
+    runtimeInstructions: './llama-cli -m sandbox/models/default.gguf -p "Write Android Kotlin Compose button"',
+    isDownloaded: true
+  },
+  {
     id: 'qwen1.5-coder-0.5b-q4',
     name: 'Qwen 1.5 Coder 0.5B (Q4_K_M)',
     provider: 'qwen_local',
@@ -136,9 +155,9 @@ const LOCAL_STORAGE_DOWNLOADED_KEY = 'umakraft_downloaded_ai_models_v1';
 export function getDownloadedModelIds(): string[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_DOWNLOADED_KEY);
-    return raw ? JSON.parse(raw) : ['qwen1.5-coder-0.5b-q4'];
+    return raw ? Array.from(new Set(['default.gguf', ...JSON.parse(raw)])) : ['default.gguf', 'qwen1.5-coder-0.5b-q4'];
   } catch {
-    return ['qwen1.5-coder-0.5b-q4'];
+    return ['default.gguf', 'qwen1.5-coder-0.5b-q4'];
   }
 }
 

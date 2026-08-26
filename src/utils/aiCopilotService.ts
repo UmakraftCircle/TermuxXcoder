@@ -1,5 +1,6 @@
 import { AiCopilotConfig, AiProviderType, AiModelOption } from '../types';
 import { MemoryService } from './turso/memoryService';
+import { offlinePreloadService } from './offlinePreloadService';
 
 export type { AiProviderType };
 
@@ -24,26 +25,35 @@ export interface ProviderMeta {
 export const AI_PROVIDERS: Record<AiProviderType, ProviderMeta> = {
   qwen_local: {
     id: 'qwen_local',
-    name: 'Local AI (Qwen 1.5 / 2.5 Coder)',
-    shortName: 'Qwen 1.5 Local',
-    tagline: '100% Offline & On-Device Local AI inference engine',
-    badge: 'Offline / Free',
+    name: 'Hardcoded Local AI (/models/default.gguf)',
+    shortName: 'Local AI (default.gguf)',
+    tagline: '100% Embedded Offline Local LLM Brain (Zero API Key required)',
+    badge: 'Hardcoded Core / 100% Offline',
     badgeColor: 'bg-[#238636]/20 text-[#3fb950] border-[#238636]/40',
     requiresKey: false,
-    keyPlaceholder: 'No API Key required (Offline local engine)',
+    keyPlaceholder: 'No API Key required (Embedded /models/default.gguf)',
     defaultEndpoint: 'http://localhost:11434/v1',
-    defaultModel: 'qwen1.5-coder-1.8b',
+    defaultModel: 'default.gguf',
     docsUrl: 'https://github.com/QwenLM/Qwen1.5',
     description:
-      'Built-in offline Qwen 1.5 Coder engine and local Ollama / llama.cpp bridge. Generates and refactors Android Kotlin, C++ NDK, and Gradle scripts without internet.',
+      'Permanently embedded on-device Local AI model (/models/default.gguf). Operates as the core system brain with zero network latency, preloaded coding knowledge, Linux command index, and full terminal/filesystem permissions.',
     models: [
+      {
+        id: 'default.gguf',
+        name: 'default.gguf (Embedded Local LLM)',
+        provider: 'qwen_local',
+        description: 'Hardcoded on-device Qwen Coder GGUF engine loaded automatically on first launch.',
+        contextWindow: '32k tokens',
+        badge: 'Default / Built-in',
+        isLocal: true
+      },
       {
         id: 'qwen1.5-coder-1.8b',
         name: 'Qwen 1.5 Coder (1.8B Local Engine)',
         provider: 'qwen_local',
         description: 'Optimized high-speed on-device model for Android modular coding & refactoring.',
         contextWindow: '32k tokens',
-        badge: 'Default / Instant',
+        badge: 'Local Engine',
         isLocal: true
       },
       {
@@ -309,10 +319,10 @@ export const AI_PROVIDERS: Record<AiProviderType, ProviderMeta> = {
 };
 
 export const DEFAULT_AI_CONFIG: AiCopilotConfig = {
-  provider: 'gemini',
-  model: 'gemini-3.7-flash',
+  provider: 'qwen_local',
+  model: 'default.gguf',
   apiKey: '',
-  customEndpoint: 'https://generativelanguage.googleapis.com/v1beta',
+  customEndpoint: 'http://localhost:11434/v1',
   temperature: 0.2,
   maxTokens: 4096,
   autoSpeak: false,
@@ -452,36 +462,52 @@ export async function requestAiAssist(params: {
     dynamicTursoMemory
   ].filter(Boolean).join('\n\n');
 
-  const res = await fetch('/api/ai-assist', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  try {
+    const res = await fetch('/api/ai-assist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: params.prompt,
+        currentFile: params.currentFile,
+        context: combinedContext,
+        history: params.history,
+        provider: config.provider,
+        model: config.model,
+        apiKey: config.apiKey,
+        customEndpoint: config.customEndpoint,
+        temperature: config.temperature,
+        maxTokens: config.maxTokens,
+        image: params.image,
+        useWebSearch: params.useWebSearch
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok && !data.reply) {
+      throw new Error(data.error || 'Failed to get response from AI provider');
+    }
+
+    return {
+      reply: data.reply || 'No code generated.',
+      provider: data.provider || config.provider,
+      model: data.model || config.model,
+      fallback: data.fallback,
+      groundedWithWeb: data.groundedWithWeb
+    };
+  } catch (err) {
+    // Instant fallback to Preloaded Offline AI Engine
+    const offlineReply = offlinePreloadService.generateOfflineAiReply({
       prompt: params.prompt,
       currentFile: params.currentFile,
-      context: combinedContext,
-      history: params.history,
-      provider: config.provider,
-      model: config.model,
-      apiKey: config.apiKey,
-      customEndpoint: config.customEndpoint,
-      temperature: config.temperature,
-      maxTokens: config.maxTokens,
-      image: params.image,
-      useWebSearch: params.useWebSearch
-    })
-  });
+      context: combinedContext
+    });
 
-  const data = await res.json();
-
-  if (!res.ok && !data.reply) {
-    throw new Error(data.error || 'Failed to get response from AI provider');
+    return {
+      reply: offlineReply,
+      provider: 'qwen_local',
+      model: 'qwen1.5-coder-1.8b (Offline Preloaded)',
+      fallback: true
+    };
   }
-
-  return {
-    reply: data.reply || 'No code generated.',
-    provider: data.provider || config.provider,
-    model: data.model || config.model,
-    fallback: data.fallback,
-    groundedWithWeb: data.groundedWithWeb
-  };
 }
