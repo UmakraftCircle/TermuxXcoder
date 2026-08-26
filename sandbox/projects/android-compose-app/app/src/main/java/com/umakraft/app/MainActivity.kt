@@ -43,6 +43,9 @@ import com.umakraft.app.git.GitHubManager
 import com.umakraft.app.git.GitHubRepo
 import com.umakraft.app.service.UmakraftBackgroundService
 import com.umakraft.app.storage.SecureStorage
+import com.umakraft.app.storage.WorkspaceStorageManager
+import com.umakraft.app.storage.WorkspaceFileInfo
+import com.umakraft.app.storage.StorageSpaceInfo
 import com.umakraft.app.ui.theme.UmakraftTheme
 import kotlinx.coroutines.launch
 import java.io.File
@@ -127,6 +130,9 @@ fun UmakraftMainScreen() {
         }
     }
 
+    val storageManager = remember { WorkspaceStorageManager(context) }
+    var storageInfo by remember { mutableStateOf(storageManager.getStorageSpaceInfo()) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -197,11 +203,12 @@ fun UmakraftMainScreen() {
         ) {
             when (selectedTab) {
                 0 -> WorkspaceDashboardView(
+                    storageManager = storageManager,
                     hasStoragePermission = hasStoragePermission,
                     onRequestStorage = { requestStoragePermission(context, storagePermissionLauncher) }
                 )
                 1 -> AutonomousAgentView(
-                    workspaceDir = context.filesDir
+                    workspaceDir = storageManager.workspaceDir
                 )
                 2 -> GitHubSyncView(
                     token = gitHubToken,
@@ -453,18 +460,38 @@ fun AutonomousAgentView(workspaceDir: File) {
 
 @Composable
 fun WorkspaceDashboardView(
+    storageManager: WorkspaceStorageManager,
     hasStoragePermission: Boolean,
     onRequestStorage: () -> Unit
 ) {
-    var taskList by remember {
-        mutableStateOf(
-            listOf(
-                ProjectTask(1, "All-Files Storage Access (Scoped & POSIX)", "System", hasStoragePermission),
-                ProjectTask(2, "Unkillable Background Service & WakeLock", "Battery", true),
-                ProjectTask(3, "Autonomous ReAct Agent Loop Engine", "Agent", true),
-                ProjectTask(4, "GitHub REST API Sync & Keystore Vault", "Git", true)
-            )
-        )
+    val context = LocalContext.current
+    var subTab by remember { mutableIntStateOf(0) } // 0: Files, 1: AI Models, 2: Storage Tiers & Telemetry
+    var storageInfo by remember { mutableStateOf(storageManager.getStorageSpaceInfo()) }
+    var workspaceFiles by remember { mutableStateOf(storageManager.listWorkspaceFiles()) }
+    var modelsList by remember { mutableStateOf(storageManager.listModels()) }
+
+    var showNewFileDialog by remember { mutableStateOf(false) }
+    var newFileName by remember { mutableStateOf("Main.kt") }
+    var newFileTemplate by remember { mutableStateOf("// UmaKraft Kotlin Source\nfun main() {\n    println(\"Hello from UmaKraft IDE!\")\n}") }
+
+    var showNewFolderDialog by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("src") }
+
+    var viewEditFile by remember { mutableStateOf<File?>(null) }
+    var editFileContent by remember { mutableStateOf("") }
+    var isSavingFile by remember { mutableStateOf(false) }
+
+    var showAddModelDialog by remember { mutableStateOf(false) }
+    var newModelName by remember { mutableStateOf("qwen2.5-coder-1.5b-instruct-q4_k_m.gguf") }
+
+    fun refreshAll() {
+        storageInfo = storageManager.getStorageSpaceInfo()
+        workspaceFiles = storageManager.listWorkspaceFiles()
+        modelsList = storageManager.listModels()
+    }
+
+    LaunchedEffect(Unit) {
+        refreshAll()
     }
 
     LazyColumn(
@@ -473,77 +500,562 @@ fun WorkspaceDashboardView(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (!hasStoragePermission) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Storage Permission Required", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
-                            Text("Allow access to read and write IDE workspace files.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f))
-                        }
-                        Button(
-                            onClick = onRequestStorage,
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text("Grant")
-                        }
-                    }
-                }
-            }
-        }
-
+        // Storage Space Telemetry Banner
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("🚀 UmaKraft IDE Engine Ready", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Full filesystem access enabled, background worker active with wake lock, and GitHub Git operations ready for commit, push & pull.",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Disk & Workspace Storage", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (storageInfo.freeBytes > 1024 * 1024 * 1024) Color(0xFF238636).copy(alpha = 0.2f) else Color(0xFFE3B341).copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                "${storageInfo.freeGbFormatted} Free",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (storageInfo.freeBytes > 1024 * 1024 * 1024) Color(0xFF3FB950) else Color(0xFFE3B341)
+                            )
+                        }
+                    }
+
+                    LinearProgressIndicator(
+                        progress = (storageInfo.usedPercent / 100f).coerceIn(0f, 1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surface
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Root: ${storageInfo.path}",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                        Text(
+                            "${storageInfo.usedPercent}% Used of ${storageInfo.totalGbFormatted}",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
 
-        items(taskList, key = { it.id }) { task ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        // Sub Navigation Tabs
+        item {
+            TabRow(
+                selectedTabIndex = subTab,
+                containerColor = Color.Transparent,
+                divider = {}
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(task.title, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                        Text(task.category, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Checkbox(
-                        checked = task.isDone,
-                        onCheckedChange = { checked ->
-                            taskList = taskList.map { if (it.id == task.id) it.copy(isDone = checked) else it }
+                Tab(
+                    selected = subTab == 0,
+                    onClick = { subTab = 0; refreshAll() },
+                    text = { Text("Workspace Files (${workspaceFiles.size})") },
+                    icon = { Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                )
+                Tab(
+                    selected = subTab == 1,
+                    onClick = { subTab = 1; refreshAll() },
+                    text = { Text("AI Models (${modelsList.size})") },
+                    icon = { Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                )
+                Tab(
+                    selected = subTab == 2,
+                    onClick = { subTab = 2; refreshAll() },
+                    text = { Text("Storage Tier") },
+                    icon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                )
+            }
+        }
+
+        when (subTab) {
+            0 -> {
+                // Workspace Files Action Bar
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { showNewFileDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("New File", fontSize = 12.sp)
                         }
-                    )
+                        OutlinedButton(
+                            onClick = { showNewFolderDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("New Folder", fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                if (workspaceFiles.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text("Workspace is empty", fontWeight = FontWeight.Medium)
+                                Text("Create source files or run the AI Agent to build projects.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                } else {
+                    items(workspaceFiles) { fileInfo ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val file = File(fileInfo.path)
+                                    if (!fileInfo.isDirectory) {
+                                        viewEditFile = file
+                                        editFileContent = storageManager.readFileContent(file)
+                                    }
+                                },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        if (fileInfo.isDirectory) Icons.Default.Folder else Icons.Default.Description,
+                                        contentDescription = null,
+                                        tint = if (fileInfo.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(fileInfo.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text(
+                                            if (fileInfo.isDirectory) "Directory • ${fileInfo.formattedSize}" else fileInfo.formattedSize,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val file = File(fileInfo.path)
+                                        storageManager.deleteItem(file)
+                                        refreshAll()
+                                        Toast.makeText(context, "Deleted ${fileInfo.name}", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            1 -> {
+                // AI Models Storage Hub
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Psychology, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Offline AI Model Storage Directory", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                            Text(
+                                "Place `.gguf`, `.bin`, or `.onnx` models inside this folder for on-device inference.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.Black.copy(alpha = 0.15f))
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    storageManager.modelsDir.absolutePath,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Button(
+                                onClick = { showAddModelDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Register / Initialize Model File")
+                            }
+                        }
+                    }
+                }
+
+                if (modelsList.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("No AI model weights found in models/", fontWeight = FontWeight.Medium)
+                                Text("Download or move GGUF models into ${storageManager.modelsDir.name}/", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                } else {
+                    items(modelsList) { model ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Memory, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(model.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(model.formattedSize, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val file = File(model.path)
+                                        storageManager.deleteItem(file)
+                                        refreshAll()
+                                        Toast.makeText(context, "Deleted ${model.name}", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            2 -> {
+                // Storage Tiers & Benchmark
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Active Storage Location Tier", fontWeight = FontWeight.Bold)
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.APP_INTERNAL) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                                    .clickable {
+                                        storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.APP_INTERNAL)
+                                        refreshAll()
+                                    }
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("1. App Internal Sandbox", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text("Isolated storage, zero permissions required.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.APP_INTERNAL) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.APP_EXTERNAL_SCOPED) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                                    .clickable {
+                                        storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.APP_EXTERNAL_SCOPED)
+                                        refreshAll()
+                                    }
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("2. External App Storage (High Capacity)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text("/Android/data/... (Gigabyte-ready, no permissions required)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.APP_EXTERNAL_SCOPED) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.SHARED_EXTERNAL) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+                                    .clickable {
+                                        if (hasStoragePermission) {
+                                            storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.SHARED_EXTERNAL)
+                                            refreshAll()
+                                        } else {
+                                            onRequestStorage()
+                                        }
+                                    }
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("3. Global Shared Storage (/sdcard/UmaKraft/)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text("Cross-app & Termux accessibility (Requires all-files access)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.SHARED_EXTERNAL) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Button(
+                                onClick = {
+                                    val (success, msg) = storageManager.testStorageWriteRead()
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Run Storage Read/Write Test")
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    // New File Dialog
+    if (showNewFileDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewFileDialog = false },
+            title = { Text("Create New Workspace File", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = newFileName,
+                        onValueChange = { newFileName = it },
+                        label = { Text("File Name (e.g. Script.py, Main.kt)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = newFileTemplate,
+                        onValueChange = { newFileTemplate = it },
+                        label = { Text("Initial Content") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newFileName.isNotBlank()) {
+                            storageManager.createFile(newFileName.trim(), newFileTemplate)
+                            refreshAll()
+                            showNewFileDialog = false
+                            Toast.makeText(context, "Created $newFileName", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewFileDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // New Folder Dialog
+    if (showNewFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { showNewFolderDialog = false },
+            title = { Text("Create New Directory", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newFolderName,
+                    onValueChange = { newFolderName = it },
+                    label = { Text("Folder Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newFolderName.isNotBlank()) {
+                            storageManager.createDirectory(newFolderName.trim())
+                            refreshAll()
+                            showNewFolderDialog = false
+                            Toast.makeText(context, "Created folder $newFolderName", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewFolderDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Add Model Dialog
+    if (showAddModelDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddModelDialog = false },
+            title = { Text("Add / Register AI Model", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter model file name to create entry in models/ folder:", fontSize = 12.sp)
+                    OutlinedTextField(
+                        value = newModelName,
+                        onValueChange = { newModelName = it },
+                        label = { Text("Model File Name (.gguf / .onnx)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newModelName.isNotBlank()) {
+                            val modelFile = File(storageManager.modelsDir, newModelName.trim())
+                            modelFile.writeText("# UmaKraft AI Model Manifest: ${newModelName.trim()}\nDownloaded: true\n")
+                            refreshAll()
+                            showAddModelDialog = false
+                            Toast.makeText(context, "Registered model: $newModelName", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("Register Model")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddModelDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // View / Edit File Dialog
+    if (viewEditFile != null) {
+        AlertDialog(
+            onDismissRequest = { viewEditFile = null },
+            title = { Text("Editing: ${viewEditFile?.name}", fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            text = {
+                OutlinedTextField(
+                    value = editFileContent,
+                    onValueChange = { editFileContent = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp),
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewEditFile?.let { file ->
+                            file.writeText(editFileContent)
+                            refreshAll()
+                            Toast.makeText(context, "Saved ${file.name}", Toast.LENGTH_SHORT).show()
+                        }
+                        viewEditFile = null
+                    }
+                ) {
+                    Text("Save Changes")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewEditFile = null }) { Text("Close") }
+            }
+        )
     }
 }
 
