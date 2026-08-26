@@ -322,6 +322,7 @@ export default function App() {
               sandboxFiles={sandboxFiles}
               onSelectFile={handleSelectFileToView}
               onOpenTerminal={() => setActiveTab('terminal')}
+              onAddSandboxFile={handleAddSandboxFile}
             />
           </div>
         )}
@@ -366,15 +367,17 @@ export default function App() {
           </div>
         )}
 
-        {/* 8. AI Model Configurator */}
+        {/* 8. AI Model Configurator & Download Center */}
         {activeTab === 'ai' && (
           <div className="h-full overflow-y-auto">
             <AiCustomizerTab
               files={appFiles}
-              onAddFile={handleAddAppFile}
+              onAddFile={handleAddSandboxFile}
               onGoToCoder={() => {
                 setActiveTab('coder');
-                setIsAiModalOpen(true);
+              }}
+              onRunTerminalCommand={(_cmd) => {
+                setActiveTab('terminal');
               }}
             />
           </div>

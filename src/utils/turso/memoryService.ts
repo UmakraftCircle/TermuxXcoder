@@ -177,6 +177,19 @@ export class MemoryService {
         this.client = new TursoClient(cfg);
       }
       this.notify();
+
+      // Sync variables to server runtime store
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/turso-set-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            databaseUrl: cfg.databaseUrl,
+            authToken: cfg.authToken,
+            databaseName: cfg.databaseName
+          })
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error('Failed to save Turso config:', e);
     }

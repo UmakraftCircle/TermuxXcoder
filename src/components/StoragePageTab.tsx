@@ -37,6 +37,7 @@ import {
 import { ProjectFile } from '../types';
 import { exportProjectToZip, downloadBlob } from '../utils/zipExporter';
 import { AppEncryptedStorageService } from '../utils/encryptedStorageService';
+import { createNewSandboxFile } from '../utils/sandboxFileManager';
 import confetti from 'canvas-confetti';
 
 interface StoragePageTabProps {
@@ -44,6 +45,7 @@ interface StoragePageTabProps {
   sandboxFiles?: ProjectFile[]; // User sandbox files
   onSelectFile?: (file: ProjectFile) => void;
   onOpenTerminal?: () => void;
+  onAddSandboxFile?: (file: ProjectFile) => void;
 }
 
 interface FileSystemItem {
@@ -65,7 +67,8 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
   files: appFiles,
   sandboxFiles = [],
   onSelectFile,
-  onOpenTerminal
+  onOpenTerminal,
+  onAddSandboxFile
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeStorageCategory, setActiveStorageCategory] = useState<'all' | 'sandbox' | 'system' | 'vault'>('all');
@@ -82,6 +85,57 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
   const [inspectedFile, setInspectedFile] = useState<ProjectFile | null>(null);
   const [copiedInspect, setCopiedInspect] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Folder creation modal state
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [folderInitType, setFolderInitType] = useState<'gitkeep' | 'kotlin' | 'cpp' | 'bash' | 'markdown' | 'json'>('gitkeep');
+  const [folderFirstFileName, setFolderFirstFileName] = useState('');
+
+  const handleCreateFolderInStorage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFolderName.trim()) return;
+
+    const rawName = newFolderName.trim().replace(/^[\/\\]+|[\/\\]+$/g, '');
+    const currentPathPrefix = currentFolderSegments.join('/');
+    const fullFolderPath = currentPathPrefix ? `${currentPathPrefix}/${rawName}` : rawName;
+
+    let firstFileName = folderFirstFileName.trim();
+    let content = '';
+
+    if (!firstFileName) {
+      if (folderInitType === 'gitkeep') {
+        firstFileName = '.gitkeep';
+        content = `# Directory: ${fullFolderPath}\n# Umakraft User Sandbox Directory\n`;
+      } else if (folderInitType === 'kotlin') {
+        firstFileName = `${rawName.split('/').pop() || 'Module'}.kt`;
+        content = `package com.umakraft.${rawName.replace(/[^a-zA-Z0-9]/g, '_')}\n\n// ${firstFileName}\n// Module: ${fullFolderPath}\n\nfun init${rawName.split('/').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'Module'}() {\n    println("Initialized module ${fullFolderPath}")\n}\n`;
+      } else if (folderInitType === 'cpp') {
+        firstFileName = `${rawName.split('/').pop() || 'native'}.cpp`;
+        content = `// Native C++ module for ${fullFolderPath}\n#include <iostream>\n\nvoid run${rawName.split('/').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'Module'}() {\n    std::cout << "[${fullFolderPath}] Native module ready." << std::endl;\n}\n`;
+      } else if (folderInitType === 'bash') {
+        firstFileName = 'script.sh';
+        content = `#!/usr/bin/env bash\necho "Running script in ${fullFolderPath}..."\n`;
+      } else if (folderInitType === 'markdown') {
+        firstFileName = 'README.md';
+        content = `# ${rawName.split('/').pop() || fullFolderPath}\n\nDocumentation and specifications for \`${fullFolderPath}\`.\n`;
+      } else if (folderInitType === 'json') {
+        firstFileName = 'config.json';
+        content = `{\n  "folder": "${fullFolderPath}",\n  "version": "1.0.0",\n  "enabled": true\n}\n`;
+      }
+    }
+
+    const fullFilePath = `${fullFolderPath}/${firstFileName}`;
+    const created = createNewSandboxFile(fullFilePath, content);
+
+    if (onAddSandboxFile) {
+      onAddSandboxFile(created);
+    }
+    setIsCreateFolderOpen(false);
+    setNewFolderName('');
+    setFolderFirstFileName('');
+    confetti({ particleCount: 40, spread: 50, origin: { y: 0.5 } });
+  };
 
   // Storage files strictly isolated to user sandbox files to prevent modification/deletion of system code
   const allStorageFiles = useMemo(() => {
@@ -512,6 +566,17 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
 
             {/* View Mode (Grid / List) & Sort Controls */}
             <div className="flex items-center gap-1.5 shrink-0">
+              {onAddSandboxFile && (
+                <button
+                  onClick={() => setIsCreateFolderOpen(true)}
+                  title="Create New Folder in current location"
+                  className="px-2.5 py-1 rounded-xl bg-[#238636]/20 hover:bg-[#238636]/30 text-[#3fb950] border border-[#238636]/40 hover:border-[#3fb950] text-xs font-mono font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                  <span>+ Folder</span>
+                </button>
+              )}
+
               {currentFolderSegments.length > 0 && (
                 <button
                   onClick={handleGoUp}
@@ -823,6 +888,133 @@ export const StoragePageTab: React.FC<StoragePageTabProps> = ({
               <span>Checksum: {inspectedFile.checksum || 'sha256:verified'}</span>
               <span>Size: {inspectedFile.content.length} Bytes</span>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Create Folder Modal */}
+      {isCreateFolderOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl max-w-md w-full p-5 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-[#30363d]">
+              <div className="flex items-center gap-2">
+                <FolderPlus className="h-5 w-5 text-[#3fb950]" />
+                <div>
+                  <h3 className="text-sm font-bold text-white font-mono">Create New Directory / Folder</h3>
+                  <p className="text-[10px] text-[#8b949e] font-mono">
+                    Target: sandbox/{currentFolderSegments.length > 0 ? `${currentFolderSegments.join('/')}/` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCreateFolderOpen(false)}
+                className="p-1 rounded-lg text-[#8b949e] hover:text-white hover:bg-[#21262d]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateFolderInStorage} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-mono text-[#8b949e] mb-1.5">
+                  Folder Name (e.g. <span className="text-[#3fb950]">utils</span>, <span className="text-[#58a6ff]">components</span>, <span className="text-[#e3b341]">models</span>)
+                </label>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="my_folder"
+                  autoFocus
+                  required
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#484f58] focus:outline-none focus:border-[#3fb950]"
+                />
+              </div>
+
+              {/* Quick suggestions */}
+              <div>
+                <label className="block text-[11px] font-mono text-[#8b949e] mb-1">Quick Suggestions</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['components', 'utils', 'network', 'models', 'services', 'scripts', 'helpers', 'docs'].map((sugg) => (
+                    <button
+                      type="button"
+                      key={sugg}
+                      onClick={() => setNewFolderName(sugg)}
+                      className="px-2 py-0.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#79c0ff] hover:text-white border border-[#30363d] text-[10px] font-mono transition-all active:scale-95"
+                    >
+                      + {sugg}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-[#8b949e] mb-1.5">
+                  Initialize Folder With
+                </label>
+                <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                  {[
+                    { id: 'gitkeep', label: '.gitkeep' },
+                    { id: 'kotlin', label: 'Module.kt' },
+                    { id: 'cpp', label: 'native.cpp' },
+                    { id: 'bash', label: 'script.sh' },
+                    { id: 'markdown', label: 'README.md' },
+                    { id: 'json', label: 'config.json' }
+                  ].map((item) => (
+                    <button
+                      type="button"
+                      key={item.id}
+                      onClick={() => setFolderInitType(item.id as any)}
+                      className={`p-2 rounded-xl border text-center transition-all ${
+                        folderInitType === item.id
+                          ? 'bg-[#238636]/20 text-[#3fb950] border-[#238636] font-bold shadow-sm'
+                          : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-[#8b949e] mb-1">
+                  Custom First File Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={folderFirstFileName}
+                  onChange={(e) => setFolderFirstFileName(e.target.value)}
+                  placeholder={folderInitType === 'gitkeep' ? '.gitkeep' : 'Leave blank for default'}
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-1.5 text-xs font-mono text-white placeholder-[#484f58] focus:outline-none focus:border-[#3fb950]"
+                />
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-[#0d1117] border border-[#30363d] text-[11px] font-mono text-[#8b949e] flex items-center gap-2">
+                <Folder className="h-3.5 w-3.5 text-[#3fb950] shrink-0" />
+                <div className="truncate">
+                  <span>Target: </span>
+                  <span className="text-[#3fb950] font-bold">
+                    sandbox/{currentFolderSegments.length > 0 ? `${currentFolderSegments.join('/')}/` : ''}{newFolderName || 'folder'}/
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#30363d]">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateFolderOpen(false)}
+                  className="px-3 py-1.5 rounded-xl bg-[#21262d] text-[#8b949e] hover:text-white text-xs font-mono"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 rounded-xl bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-mono font-bold shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                  <span>Create Folder</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -7,6 +7,7 @@ export type HistoryActionType =
   | 'auto_format'
   | 'global_replace'
   | 'file_create'
+  | 'folder_create'
   | 'file_delete'
   | 'file_import'
   | 'replace_find'

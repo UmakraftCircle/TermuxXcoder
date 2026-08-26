@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Sparkles,
   Code2,
@@ -10,6 +10,7 @@ import {
   Edit3,
   X,
   Settings,
+  Folder,
   FolderTree,
   Sliders,
   Bot,
@@ -270,10 +271,35 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
   const [, setIsImporting] = useState(false);
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
 
-  // New File Modal state
-  const [isNewFileModalOpen, setIsNewFileModalOpen] = useState(false);
+  // New File & Folder Creation Modal state
+  const [isNewItemModalOpen, setIsNewItemModalOpen] = useState(false);
+  const [createModalTab, setCreateModalTab] = useState<'file' | 'folder'>('file');
   const [newFileName, setNewFileName] = useState('');
-  const [newFileTemplate, setNewFileTemplate] = useState<'kotlin' | 'cpp' | 'bash' | 'markdown' | 'json'>('kotlin');
+  const [newFileFolder, setNewFileFolder] = useState('');
+  const [newFileTemplate, setNewFileTemplate] = useState<'kotlin' | 'cpp' | 'bash' | 'markdown' | 'json' | 'xml'>('kotlin');
+
+  // New Folder Creation state
+  const [newFolderName, setNewFolderName] = useState('');
+  const [parentFolder, setParentFolder] = useState('');
+  const [folderInitType, setFolderInitType] = useState<'gitkeep' | 'kotlin' | 'cpp' | 'bash' | 'markdown' | 'json'>('gitkeep');
+  const [folderFirstFileName, setFolderFirstFileName] = useState('');
+
+  // Discover existing folder hierarchy from sandbox files
+  const existingFolders = useMemo(() => {
+    const folders = new Set<string>();
+    sandboxFiles.forEach((file) => {
+      const cleanPath = file.path.replace(/^sandbox\//, '');
+      const parts = cleanPath.split('/');
+      if (parts.length > 1) {
+        let acc = '';
+        for (let i = 0; i < parts.length - 1; i++) {
+          acc = acc ? `${acc}/${parts[i]}` : parts[i];
+          folders.add(acc);
+        }
+      }
+    });
+    return Array.from(folders).sort();
+  }, [sandboxFiles]);
 
   // AI Copilot Provider & Settings State
   const [aiConfig, setAiConfig] = useState<AiCopilotConfig>(getSavedAiConfig());
@@ -1042,24 +1068,36 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     e.preventDefault();
     if (!newFileName.trim()) return;
 
-    let finalName = newFileName.trim();
+    let rawName = newFileName.trim().replace(/^[\/\\]+/, '');
+    const chosenFolder = newFileFolder.trim().replace(/^[\/\\]+|[\/\\]+$/g, '');
+    if (chosenFolder && !rawName.includes('/')) {
+      rawName = `${chosenFolder}/${rawName}`;
+    }
+
+    let finalName = rawName;
     if (!finalName.includes('.')) {
       if (newFileTemplate === 'kotlin') finalName += '.kt';
       else if (newFileTemplate === 'cpp') finalName += '.cpp';
       else if (newFileTemplate === 'bash') finalName += '.sh';
       else if (newFileTemplate === 'markdown') finalName += '.md';
       else if (newFileTemplate === 'json') finalName += '.json';
+      else if (newFileTemplate === 'xml') finalName += '.xml';
     }
 
-    let initialTemplate = `// ${finalName}\n// Umakraft User Sandbox\n\n`;
+    const shortName = finalName.split('/').pop() || finalName;
+    let initialTemplate = `// ${shortName}\n// Path: ${finalName}\n// Umakraft User Sandbox\n\n`;
     if (newFileTemplate === 'kotlin' || finalName.endsWith('.kt')) {
-      initialTemplate += `fun main() {\n    println("Hello from ${finalName}!")\n}\n`;
+      initialTemplate += `fun main() {\n    println("Hello from ${shortName}!")\n}\n`;
     } else if (newFileTemplate === 'cpp' || finalName.endsWith('.cpp')) {
-      initialTemplate = `#include <iostream>\n\nint main() {\n    std::cout << "Hello from ${finalName}!" << std::endl;\n    return 0;\n}\n`;
+      initialTemplate = `#include <iostream>\n\nint main() {\n    std::cout << "Hello from ${shortName}!" << std::endl;\n    return 0;\n}\n`;
     } else if (newFileTemplate === 'bash' || finalName.endsWith('.sh')) {
-      initialTemplate = `#!/usr/bin/env bash\necho "Running ${finalName}..."\n`;
+      initialTemplate = `#!/usr/bin/env bash\necho "Running ${shortName}..."\n`;
     } else if (newFileTemplate === 'json' || finalName.endsWith('.json')) {
-      initialTemplate = `{\n  "name": "${finalName}",\n  "version": "1.0.0"\n}\n`;
+      initialTemplate = `{\n  "name": "${shortName}",\n  "version": "1.0.0"\n}\n`;
+    } else if (newFileTemplate === 'markdown' || finalName.endsWith('.md')) {
+      initialTemplate = `# ${shortName}\n\nDocumentation for user sandbox.\n`;
+    } else if (newFileTemplate === 'xml' || finalName.endsWith('.xml')) {
+      initialTemplate = `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <!-- ${shortName} -->\n</resources>\n`;
     }
 
     const created = createNewSandboxFile(finalName, initialTemplate);
@@ -1078,11 +1116,104 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
       onAddSandboxFile(created);
     }
     setSelectedFilePath(created.path);
-    setIsNewFileModalOpen(false);
+    setIsNewItemModalOpen(false);
     setNewFileName('');
     setSaveStatus('saved');
     setLastSavedTime('Just now');
+
+    setActiveFileToast({
+      name: created.name,
+      path: created.path,
+      extLabel: 'FILE',
+      color: 'text-[#3fb950]',
+      bgColor: 'bg-[#238636]/20',
+      borderColor: 'border-[#3fb950]/50',
+      typeDesc: `📄 File created: ${created.path}`
+    });
+
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setActiveFileToast(null);
+    }, 2500);
+
     confetti({ particleCount: 30, spread: 45, origin: { y: 0.5 } });
+  };
+
+  // Create New Folder
+  const handleCreateFolderSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFolderName.trim()) return;
+
+    const rawFolderName = newFolderName.trim().replace(/^[\/\\]+|[\/\\]+$/g, '');
+    const targetParent = parentFolder.trim().replace(/^[\/\\]+|[\/\\]+$/g, '');
+    const fullFolderPath = targetParent ? `${targetParent}/${rawFolderName}` : rawFolderName;
+
+    // Determine what initial file to create inside the new folder
+    let firstFileName = folderFirstFileName.trim();
+    let content = '';
+
+    if (!firstFileName) {
+      if (folderInitType === 'gitkeep') {
+        firstFileName = '.gitkeep';
+        content = `# Directory: ${fullFolderPath}\n# Umakraft User Sandbox Directory\n`;
+      } else if (folderInitType === 'kotlin') {
+        firstFileName = `${rawFolderName.split('/').pop() || 'Module'}.kt`;
+        content = `package com.umakraft.${rawFolderName.replace(/[^a-zA-Z0-9]/g, '_')}\n\n// ${firstFileName}\n// Module: ${fullFolderPath}\n\nfun init${rawFolderName.split('/').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'Module'}() {\n    println("Initialized module ${fullFolderPath}")\n}\n`;
+      } else if (folderInitType === 'cpp') {
+        firstFileName = `${rawFolderName.split('/').pop() || 'native'}.cpp`;
+        content = `// Native C++ module for ${fullFolderPath}\n#include <iostream>\n\nvoid run${rawFolderName.split('/').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'Module'}() {\n    std::cout << "[${fullFolderPath}] Native module ready." << std::endl;\n}\n`;
+      } else if (folderInitType === 'bash') {
+        firstFileName = 'script.sh';
+        content = `#!/usr/bin/env bash\necho "Running workflow in ${fullFolderPath}..."\n`;
+      } else if (folderInitType === 'markdown') {
+        firstFileName = 'README.md';
+        content = `# ${rawFolderName.split('/').pop() || fullFolderPath}\n\nDocumentation and specifications for the \`${fullFolderPath}\` folder in Umakraft User Sandbox.\n`;
+      } else if (folderInitType === 'json') {
+        firstFileName = 'config.json';
+        content = `{\n  "folder": "${fullFolderPath}",\n  "version": "1.0.0",\n  "enabled": true\n}\n`;
+      }
+    }
+
+    const fullFilePath = `${fullFolderPath}/${firstFileName}`;
+    const created = createNewSandboxFile(fullFilePath, content);
+
+    const nextFiles = [created, ...sandboxFiles.filter((f) => f.path !== created.path)];
+    sandboxUndoRedoManager.pushSnapshot({
+      actionType: 'folder_create',
+      filePath: created.path,
+      fileName: rawFolderName,
+      description: `Created folder "${fullFolderPath}/" with ${firstFileName}`,
+      files: nextFiles,
+      activeFilePath: created.path,
+      force: true
+    });
+
+    if (onAddSandboxFile) {
+      onAddSandboxFile(created);
+    }
+    setSelectedFilePath(created.path);
+    setIsNewItemModalOpen(false);
+    setNewFolderName('');
+    setFolderFirstFileName('');
+    setSaveStatus('saved');
+    setLastSavedTime('Just now');
+
+    setActiveFileToast({
+      name: `${fullFolderPath}/`,
+      path: created.path,
+      extLabel: 'DIR',
+      color: 'text-[#58a6ff]',
+      bgColor: 'bg-[#1f6feb]/20',
+      borderColor: 'border-[#1f6feb]/50',
+      typeDesc: `📁 Folder created: ${fullFolderPath}/ (${firstFileName})`
+    });
+
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setActiveFileToast(null);
+    }, 3000);
+
+    confetti({ particleCount: 45, spread: 60, origin: { y: 0.4 } });
   };
 
   // Dedicated Code Diagnostic Action
@@ -1474,6 +1605,20 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                 );
               })
             )}
+
+            {/* Quick Add Tab Button (+ File or Folder) */}
+            <button
+              type="button"
+              onClick={() => {
+                setCreateModalTab('file');
+                setIsNewItemModalOpen(true);
+              }}
+              title="Create New File or Folder in Workspace (+)"
+              className="h-7 px-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#3fb950] hover:text-white border border-[#30363d] hover:border-[#3fb950]/50 flex items-center gap-1 text-[11px] font-mono font-bold transition-all active:scale-95 shrink-0 shadow-sm"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">New</span>
+            </button>
           </div>
 
           {/* Right Header Status: Format, Undo/Redo, Timeline, Unrestrained Switch, Auto-Save Status Badge & File Details */}
@@ -1790,11 +1935,14 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
               )}
             </div>
 
-            {/* 5. Create New File */}
+            {/* 5. Create New File or Folder */}
             <button
-              onClick={() => setIsNewFileModalOpen(true)}
-              title="Create New File in Workspace"
-              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#3fb950] hover:text-white border border-[#30363d] text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
+              onClick={() => {
+                setCreateModalTab('file');
+                setIsNewItemModalOpen(true);
+              }}
+              title="Create New File or Folder in Workspace (+)"
+              className="p-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-[#3fb950] hover:text-white border border-[#30363d] hover:border-[#3fb950]/50 text-xs flex items-center justify-center transition-all active:scale-95 shadow-sm"
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -2191,10 +2339,13 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
                 </p>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setIsNewFileModalOpen(true)}
+                    onClick={() => {
+                      setCreateModalTab('file');
+                      setIsNewItemModalOpen(true);
+                    }}
                     className="px-3.5 py-1.5 rounded-xl bg-[#1f6feb] hover:bg-[#1158c7] text-white text-xs font-semibold transition-all shadow-md"
                   >
-                    + Create First File
+                    + Create First File or Folder
                   </button>
                   {onLoadSampleSandbox && (
                     <button
@@ -2498,77 +2649,289 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         }}
       />
 
-      {/* Create New File Modal */}
-      {isNewFileModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl max-w-md w-full p-5 shadow-2xl animate-in zoom-in-95 duration-150">
+      {/* Create New File or Folder Modal */}
+      {isNewItemModalOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl max-w-lg w-full p-4 sm:p-5 shadow-2xl animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-[#30363d]">
               <div className="flex items-center gap-2">
-                <FilePlus2 className="h-5 w-5 text-[#58a6ff]" />
-                <h3 className="text-sm font-bold text-white font-mono">Create New Sandbox File</h3>
+                {createModalTab === 'file' ? (
+                  <FilePlus2 className="h-5 w-5 text-[#58a6ff]" />
+                ) : (
+                  <FolderPlus className="h-5 w-5 text-[#3fb950]" />
+                )}
+                <div>
+                  <h3 className="text-sm font-bold text-white font-mono">
+                    {createModalTab === 'file' ? 'Create New File' : 'Create New Directory / Folder'}
+                  </h3>
+                  <p className="text-[10px] text-[#8b949e] font-mono">
+                    User Sandbox Workspace Scope &bull; Auto-saved
+                  </p>
+                </div>
               </div>
               <button
-                onClick={() => setIsNewFileModalOpen(false)}
-                className="p-1 rounded-lg text-[#8b949e] hover:text-white hover:bg-[#21262d]"
+                onClick={() => setIsNewItemModalOpen(false)}
+                className="p-1.5 rounded-lg text-[#8b949e] hover:text-white hover:bg-[#21262d] transition-colors"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateFileSubmit} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-xs font-mono text-[#8b949e] mb-1.5">
-                  File Name (e.g. MyComponent.kt, script.sh, config.json)
-                </label>
-                <input
-                  type="text"
-                  value={newFileName}
-                  onChange={(e) => setNewFileName(e.target.value)}
-                  placeholder="MyCodeFile.kt"
-                  autoFocus
-                  required
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff]"
-                />
-              </div>
+            {/* Mode Switcher Tabs */}
+            <div className="flex items-center p-1 bg-[#0d1117] border border-[#30363d] rounded-xl mt-3.5 mb-4">
+              <button
+                type="button"
+                onClick={() => setCreateModalTab('file')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-mono font-bold transition-all ${
+                  createModalTab === 'file'
+                    ? 'bg-[#1f6feb] text-white shadow-md'
+                    : 'text-[#8b949e] hover:text-white'
+                }`}
+              >
+                <FilePlus2 className="h-4 w-4" />
+                <span>New File</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateModalTab('folder')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-mono font-bold transition-all ${
+                  createModalTab === 'folder'
+                    ? 'bg-[#238636] text-white shadow-md'
+                    : 'text-[#8b949e] hover:text-white'
+                }`}
+              >
+                <FolderPlus className="h-4 w-4" />
+                <span>New Folder</span>
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-xs font-mono text-[#8b949e] mb-1.5">
-                  Starter Template
-                </label>
-                <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-                  {(['kotlin', 'cpp', 'bash', 'json', 'markdown'] as const).map((tmpl) => (
-                    <button
-                      type="button"
-                      key={tmpl}
-                      onClick={() => setNewFileTemplate(tmpl)}
-                      className={`p-2 rounded-xl border text-center transition-all capitalize ${
-                        newFileTemplate === tmpl
-                          ? 'bg-[#1f6feb]/20 text-[#58a6ff] border-[#1f6feb] font-bold'
-                          : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
-                      }`}
-                    >
-                      {tmpl}
-                    </button>
-                  ))}
+            {/* TAB 1: CREATE NEW FILE */}
+            {createModalTab === 'file' && (
+              <form onSubmit={handleCreateFileSubmit} className="space-y-4">
+                {/* File Location / Folder */}
+                <div>
+                  <label className="block text-xs font-mono text-[#8b949e] mb-1">
+                    Folder Location (Optional)
+                  </label>
+                  <select
+                    value={newFileFolder}
+                    onChange={(e) => setNewFileFolder(e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-[#58a6ff]"
+                  >
+                    <option value="">/ (Workspace Root)</option>
+                    {existingFolders.map((fld) => (
+                      <option key={fld} value={fld}>
+                        📁 {fld}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#30363d]">
-                <button
-                  type="button"
-                  onClick={() => setIsNewFileModalOpen(false)}
-                  className="px-3 py-1.5 rounded-xl bg-[#21262d] text-[#8b949e] hover:text-white text-xs font-mono"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-xl bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-mono font-bold shadow-md transition-all active:scale-95"
-                >
-                  Create File
-                </button>
-              </div>
-            </form>
+                {/* File Name */}
+                <div>
+                  <label className="block text-xs font-mono text-[#8b949e] mb-1">
+                    File Name (e.g. <span className="text-[#58a6ff]">MyService.kt</span>, <span className="text-[#3fb950]">script.sh</span>, <span className="text-[#e3b341]">config.json</span>)
+                  </label>
+                  <input
+                    type="text"
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    placeholder="MyComponent.kt"
+                    autoFocus
+                    required
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff]"
+                  />
+                </div>
+
+                {/* Starter Template */}
+                <div>
+                  <label className="block text-xs font-mono text-[#8b949e] mb-1.5">
+                    Starter Template
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                    {(['kotlin', 'cpp', 'bash', 'json', 'markdown', 'xml'] as const).map((tmpl) => (
+                      <button
+                        type="button"
+                        key={tmpl}
+                        onClick={() => setNewFileTemplate(tmpl)}
+                        className={`p-2 rounded-xl border text-center transition-all capitalize ${
+                          newFileTemplate === tmpl
+                            ? 'bg-[#1f6feb]/20 text-[#58a6ff] border-[#1f6feb] font-bold shadow-sm'
+                            : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
+                        }`}
+                      >
+                        {tmpl === 'cpp' ? 'C++ NDK' : tmpl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Live Path Preview */}
+                <div className="p-2.5 rounded-xl bg-[#0d1117] border border-[#30363d] text-[11px] font-mono text-[#8b949e] flex items-center gap-2">
+                  <FileCode className="h-3.5 w-3.5 text-[#58a6ff] shrink-0" />
+                  <div className="truncate">
+                    <span className="text-[#8b949e]">Target: </span>
+                    <span className="text-[#3fb950] font-bold">
+                      sandbox/{newFileFolder ? `${newFileFolder}/` : ''}{newFileName || 'file.kt'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#30363d]">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewItemModalOpen(false)}
+                    className="px-3 py-1.5 rounded-xl bg-[#21262d] text-[#8b949e] hover:text-white text-xs font-mono transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 rounded-xl bg-[#1f6feb] hover:bg-[#388bfd] text-white text-xs font-mono font-bold shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+                  >
+                    <FilePlus2 className="h-3.5 w-3.5" />
+                    <span>Create File</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 2: CREATE NEW FOLDER */}
+            {createModalTab === 'folder' && (
+              <form onSubmit={handleCreateFolderSubmit} className="space-y-4">
+                {/* Folder Location / Parent Folder */}
+                <div>
+                  <label className="block text-xs font-mono text-[#8b949e] mb-1">
+                    Parent Directory (Optional)
+                  </label>
+                  <select
+                    value={parentFolder}
+                    onChange={(e) => setParentFolder(e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-[#3fb950]"
+                  >
+                    <option value="">/ (Workspace Root)</option>
+                    {existingFolders.map((fld) => (
+                      <option key={fld} value={fld}>
+                        📁 {fld}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Folder Name */}
+                <div>
+                  <label className="block text-xs font-mono text-[#8b949e] mb-1">
+                    Folder / Directory Name (e.g. <span className="text-[#3fb950]">components</span>, <span className="text-[#58a6ff]">utils/network</span>, <span className="text-[#e3b341]">models</span>)
+                  </label>
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    placeholder="components"
+                    autoFocus
+                    required
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#484f58] focus:outline-none focus:border-[#3fb950]"
+                  />
+                </div>
+
+                {/* Quick Suggestion Chips */}
+                <div>
+                  <label className="block text-[11px] font-mono text-[#8b949e] mb-1.5">
+                    Quick Suggestions
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {['components', 'utils', 'network', 'models', 'services', 'scripts', 'helpers', 'ui', 'docs'].map(
+                      (sugg) => (
+                        <button
+                          type="button"
+                          key={sugg}
+                          onClick={() => setNewFolderName(sugg)}
+                          className="px-2 py-0.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-[#79c0ff] hover:text-white border border-[#30363d] text-[10px] font-mono transition-all active:scale-95"
+                        >
+                          + {sugg}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Starter File to initialize folder */}
+                <div>
+                  <label className="block text-xs font-mono text-[#8b949e] mb-1.5">
+                    Initialize Folder With
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                    {[
+                      { id: 'gitkeep', label: '.gitkeep', desc: 'Empty Folder' },
+                      { id: 'kotlin', label: 'Module.kt', desc: 'Kotlin' },
+                      { id: 'cpp', label: 'native.cpp', desc: 'C++ NDK' },
+                      { id: 'bash', label: 'script.sh', desc: 'Shell' },
+                      { id: 'markdown', label: 'README.md', desc: 'Docs' },
+                      { id: 'json', label: 'config.json', desc: 'Config' }
+                    ].map((item) => (
+                      <button
+                        type="button"
+                        key={item.id}
+                        onClick={() => setFolderInitType(item.id as any)}
+                        className={`p-2 rounded-xl border text-center transition-all ${
+                          folderInitType === item.id
+                            ? 'bg-[#238636]/20 text-[#3fb950] border-[#238636] font-bold shadow-sm'
+                            : 'bg-[#21262d] text-[#8b949e] border-[#30363d] hover:text-white'
+                        }`}
+                      >
+                        <div className="font-bold">{item.label}</div>
+                        <div className="text-[9px] opacity-75">{item.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Optional Custom First File Name */}
+                <div>
+                  <label className="block text-[11px] font-mono text-[#8b949e] mb-1">
+                    Custom First File Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={folderFirstFileName}
+                    onChange={(e) => setFolderFirstFileName(e.target.value)}
+                    placeholder={folderInitType === 'gitkeep' ? '.gitkeep' : 'Leave blank for default starter file'}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-1.5 text-xs font-mono text-white placeholder-[#484f58] focus:outline-none focus:border-[#3fb950]"
+                  />
+                </div>
+
+                {/* Live Directory Path Preview */}
+                <div className="p-2.5 rounded-xl bg-[#0d1117] border border-[#30363d] text-[11px] font-mono text-[#8b949e] flex items-center gap-2">
+                  <Folder className="h-3.5 w-3.5 text-[#3fb950] shrink-0" />
+                  <div className="truncate">
+                    <span className="text-[#8b949e]">Folder Path: </span>
+                    <span className="text-[#3fb950] font-bold">
+                      sandbox/{parentFolder ? `${parentFolder}/` : ''}{newFolderName || 'my_folder'}/
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#30363d]">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewItemModalOpen(false)}
+                    className="px-3 py-1.5 rounded-xl bg-[#21262d] text-[#8b949e] hover:text-white text-xs font-mono transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 rounded-xl bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-mono font-bold shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5" />
+                    <span>Create Folder</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

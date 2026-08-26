@@ -23,7 +23,9 @@ import {
   PlusCircle,
   ArrowRight,
   Database,
-  Cloud
+  Cloud,
+  Download,
+  FolderDown
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ProjectFile, AiProviderType, AiCopilotConfig } from '../types';
@@ -36,14 +38,22 @@ import {
   testAiConnection,
   requestAiAssist
 } from '../utils/aiCopilotService';
+import { AiModelDownloadCenter } from './AiModelDownloadCenter';
 
 interface AiCustomizerTabProps {
   files: ProjectFile[];
   onAddFile: (newFile: ProjectFile) => void;
   onGoToCoder?: () => void;
+  onRunTerminalCommand?: (cmd: string) => void;
 }
 
-export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFile, onGoToCoder }) => {
+export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({
+  files,
+  onAddFile,
+  onGoToCoder,
+  onRunTerminalCommand
+}) => {
+  const [activeMainSection, setActiveMainSection] = useState<'hub' | 'download_ai'>('hub');
   const [config, setConfig] = useState<AiCopilotConfig>(getSavedAiConfig());
   const [showKey, setShowKey] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -230,8 +240,47 @@ export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFi
         </div>
       </div>
 
-      {/* App Rule: Immutable Edit Scope Lock Banner */}
-      <div className="bg-[#161b22] border border-[#1f6feb]/30 rounded-2xl p-3.5 sm:p-4 shadow-sm flex items-start gap-3 bg-gradient-to-r from-[#1f6feb]/10 via-[#161b22] to-[#161b22]">
+      {/* Primary Section Switcher Tabs (AI Copilot Hub vs Download Offline AI) */}
+      <div className="flex items-center gap-2 p-1 bg-[#161b22] border border-[#30363d] rounded-2xl">
+        <button
+          type="button"
+          onClick={() => setActiveMainSection('hub')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[44px] ${
+            activeMainSection === 'hub'
+              ? 'bg-[#1f6feb] text-white shadow-md'
+              : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
+          }`}
+        >
+          <Sparkles className="h-4 w-4" />
+          <span>AI Copilot & Settings</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainSection('download_ai')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[44px] ${
+            activeMainSection === 'download_ai'
+              ? 'bg-gradient-to-r from-[#238636] to-[#2ea043] text-white shadow-md'
+              : 'text-[#8b949e] hover:text-[#3fb950] hover:bg-[#21262d]'
+          }`}
+        >
+          <Download className="h-4 w-4 text-[#7ee787]" />
+          <span>Download AI Models</span>
+          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/30 text-[#7ee787] border border-[#3fb950]/40 font-bold hidden xs:inline">
+            GGUF Free
+          </span>
+        </button>
+      </div>
+
+      {activeMainSection === 'download_ai' ? (
+        <AiModelDownloadCenter
+          onAddFileToWorkspace={onAddFile}
+          onRunTerminalCommand={onRunTerminalCommand}
+        />
+      ) : (
+        <>
+          {/* App Rule: Immutable Edit Scope Lock Banner */}
+          <div className="bg-[#161b22] border border-[#1f6feb]/30 rounded-2xl p-3.5 sm:p-4 shadow-sm flex items-start gap-3 bg-gradient-to-r from-[#1f6feb]/10 via-[#161b22] to-[#161b22]">
         <div className="p-2 rounded-xl bg-[#1f6feb]/20 text-[#58a6ff] shrink-0 mt-0.5">
           <ShieldCheck className="h-5 w-5" />
         </div>
@@ -607,6 +656,8 @@ export const AiCustomizerTab: React.FC<AiCustomizerTabProps> = ({ files, onAddFi
             {activeOutputTab === 'code' && extractedCode ? extractedCode : response}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

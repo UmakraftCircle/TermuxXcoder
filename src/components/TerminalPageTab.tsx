@@ -44,6 +44,10 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = () => {
   const [activeSubTab, setActiveSubTab] = useState<'terminal' | 'github_push' | 'push_script'>('terminal');
   const [commandInput, setCommandInput] = useState('');
   const [copiedLog, setCopiedLog] = useState(false);
+  const [currentCwd, setCurrentCwd] = useState('~');
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const inputRef = useRef<HTMLInputElement>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
   // GitHub Push State
@@ -58,19 +62,19 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = () => {
     {
       id: '1',
       type: 'info',
-      text: '⚡ Termux PTY Shell v2.4 (Android /dev/ptmx • aarch64 • OpenJDK 17)',
+      text: '⚡ Termux PTY Shell (Android 14 • aarch64 • POSIX /dev/ptmx)',
       timestamp: '09:50:00'
     },
     {
       id: '2',
       type: 'success',
-      text: '✓ PTY native bridge connected (forkpty() JNI)',
+      text: '✓ Working shell engine active with sandbox file operations, Node, Git, & pkg manager.',
       timestamp: '09:50:01'
     },
     {
       id: '3',
       type: 'info',
-      text: 'Type a command or tap any quick action below.',
+      text: 'Type commands or use the Termux touch ribbon below (neofetch, pkg install, ls, node -v, ./gradlew).',
       timestamp: '09:50:02'
     }
   ];
@@ -94,11 +98,13 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = () => {
     const cmdEntry: CommandLog = {
       id: Math.random().toString(36).substring(7),
       type: 'cmd',
-      text: `umakraft@termux:~$ ${trimmed}`,
+      text: `u0_a249@termux:${currentCwd}$ ${trimmed}`,
       timestamp: time
     };
 
     setLogs((prev) => [...prev, cmdEntry]);
+    setHistory((prev) => [...prev, trimmed]);
+    setHistoryIndex(-1);
     setCommandInput('');
 
     const lower = trimmed.toLowerCase();
@@ -128,17 +134,30 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = () => {
       });
 
       const data = await res.json();
-      const outputText = data.output || `Executed: ${trimmed}`;
+      if (data.cwd) {
+        setCurrentCwd(data.cwd);
+      }
 
-      setLogs((prev) => [
-        ...prev,
-        {
-          id: Math.random().toString(36).substring(7),
-          type: outputText.includes('BUILD SUCCESSFUL') || outputText.includes('✓') ? 'success' : 'info',
-          text: outputText,
-          timestamp: getTimeString()
-        }
-      ]);
+      const outputText = data.output !== undefined ? data.output : `Executed: ${trimmed}`;
+
+      if (outputText) {
+        setLogs((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(36).substring(7),
+            type:
+              outputText.includes('BUILD SUCCESSFUL') ||
+              outputText.includes('✓') ||
+              outputText.includes('Hit:')
+                ? 'success'
+                : data.exitCode && data.exitCode !== 0
+                ? 'error'
+                : 'info',
+            text: outputText,
+            timestamp: getTimeString()
+          }
+        ]);
+      }
     } catch (err: any) {
       setLogs((prev) => [
         ...prev,
@@ -149,6 +168,36 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = () => {
           timestamp: getTimeString()
         }
       ]);
+    }
+  };
+
+  const handleInsertChar = (char: string) => {
+    setCommandInput((prev) => prev + char);
+    inputRef.current?.focus();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleRunCommand(commandInput);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (history.length > 0) {
+        const nextIdx = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
+        setHistoryIndex(nextIdx);
+        setCommandInput(history[nextIdx] || '');
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex !== -1) {
+        const nextIdx = historyIndex + 1;
+        if (nextIdx >= history.length) {
+          setHistoryIndex(-1);
+          setCommandInput('');
+        } else {
+          setHistoryIndex(nextIdx);
+          setCommandInput(history[nextIdx] || '');
+        }
+      }
     }
   };
 
@@ -331,11 +380,15 @@ git push -u origin ${targetBranch}
           {/* Quick Command Icon Bar */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {[
-              { icon: GitBranch, label: 'status', cmd: 'git status' },
-              { icon: UploadCloud, label: 'push', cmd: 'git push origin main' },
-              { icon: Package, label: 'build apk', cmd: './gradlew assembleRelease' },
-              { icon: Cpu, label: 'packages', cmd: 'pkg list-installed' },
-              { icon: Code2, label: 'clang++', cmd: 'clang++ --version' },
+              { icon: Sparkles, label: 'neofetch', cmd: 'neofetch' },
+              { icon: Cpu, label: 'pkg list', cmd: 'pkg list-installed' },
+              { icon: Package, label: 'pkg update', cmd: 'pkg update' },
+              { icon: GitBranch, label: 'git status', cmd: 'git status' },
+              { icon: UploadCloud, label: 'git push', cmd: 'git push origin main' },
+              { icon: Layers, label: 'build apk', cmd: './gradlew assembleRelease' },
+              { icon: TerminalIcon, label: 'termux-info', cmd: 'termux-info' },
+              { icon: Code2, label: 'node -v', cmd: 'node -v' },
+              { icon: FileCode, label: 'ls -la', cmd: 'ls -la' },
               { icon: Trash2, label: 'clear', cmd: 'clear' }
             ].map((item) => {
               const Icon = item.icon;
@@ -360,9 +413,12 @@ git push -u origin ${targetBranch}
                 <div className="h-2.5 w-2.5 rounded-full bg-[#f85149]" />
                 <div className="h-2.5 w-2.5 rounded-full bg-[#d29922]" />
                 <div className="h-2.5 w-2.5 rounded-full bg-[#3fb950]" />
-                <span className="text-[11px] font-mono text-[#8b949e] ml-2">termux-pty</span>
+                <span className="text-[11px] font-mono text-[#8b949e] ml-2">termux-pty ({currentCwd})</span>
               </div>
-              <span className="text-[10px] font-mono text-[#3fb950]">● active</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-[#8b949e]">bash 5.2</span>
+                <span className="text-[10px] font-mono text-[#3fb950]">● active</span>
+              </div>
             </div>
 
             {/* Terminal Screen Logs */}
@@ -370,7 +426,7 @@ git push -u origin ${targetBranch}
               {logs.map((log) => (
                 <div
                   key={log.id}
-                  className={`leading-relaxed ${
+                  className={`leading-relaxed whitespace-pre-wrap font-mono ${
                     log.type === 'cmd'
                       ? 'text-[#58a6ff] font-bold'
                       : log.type === 'success'
@@ -389,18 +445,72 @@ git push -u origin ${targetBranch}
             </div>
           </div>
 
+          {/* Termux Touch Accessory Keys Ribbon (Mobile & Touch Precision) */}
+          <div className="flex items-center gap-1 overflow-x-auto py-1 scrollbar-none bg-[#0d1117] px-2 rounded-xl border border-[#30363d]">
+            {[
+              { label: 'ESC', action: () => setCommandInput('') },
+              { label: 'TAB', action: () => handleInsertChar('  ') },
+              {
+                label: '↑',
+                action: () => {
+                  if (history.length > 0) {
+                    const nextIdx = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
+                    setHistoryIndex(nextIdx);
+                    setCommandInput(history[nextIdx] || '');
+                  }
+                }
+              },
+              {
+                label: '↓',
+                action: () => {
+                  if (historyIndex !== -1) {
+                    const nextIdx = historyIndex + 1;
+                    if (nextIdx >= history.length) {
+                      setHistoryIndex(-1);
+                      setCommandInput('');
+                    } else {
+                      setHistoryIndex(nextIdx);
+                      setCommandInput(history[nextIdx] || '');
+                    }
+                  }
+                }
+              },
+              { label: '~', action: () => handleInsertChar('~') },
+              { label: '/', action: () => handleInsertChar('/') },
+              { label: '|', action: () => handleInsertChar('|') },
+              { label: '-', action: () => handleInsertChar('-') },
+              { label: '_', action: () => handleInsertChar('_') },
+              { label: '$', action: () => handleInsertChar('$') },
+              { label: '&', action: () => handleInsertChar('&') },
+              { label: ';', action: () => handleInsertChar(';') },
+              { label: '>', action: () => handleInsertChar('>') },
+              { label: '*', action: () => handleInsertChar('*') },
+              { label: '"', action: () => handleInsertChar('"') }
+            ].map((k) => (
+              <button
+                key={k.label}
+                type="button"
+                onClick={k.action}
+                className="px-2.5 py-1 rounded-lg bg-[#161b22] hover:bg-[#21262d] active:bg-[#30363d] text-[#c9d1d9] hover:text-white font-mono text-xs font-semibold border border-[#30363d] transition-all min-w-[32px] text-center"
+              >
+                {k.label}
+              </button>
+            ))}
+          </div>
+
           {/* Command Prompt Input Bar */}
           <div className="flex items-center gap-1.5 pt-0.5">
             <div className="flex items-center gap-2 px-3 py-2 bg-[#0d1117] border border-[#30363d] rounded-xl flex-1 focus-within:border-[#58a6ff]">
-              <span className="text-[#3fb950] font-mono text-xs font-bold">$</span>
+              <span className="text-[#3fb950] font-mono text-xs font-bold whitespace-nowrap">
+                u0_a249@termux:{currentCwd}$
+              </span>
               <input
+                ref={inputRef}
                 type="text"
                 value={commandInput}
                 onChange={(e) => setCommandInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleRunCommand(commandInput);
-                }}
-                placeholder="type command (git push, build, help)..."
+                onKeyDown={handleKeyDown}
+                placeholder="type command (e.g. ls, neofetch, pkg install, node -v)..."
                 className="bg-transparent text-[#f0f6fc] font-mono text-xs focus:outline-none flex-1 placeholder-[#8b949e]"
               />
             </div>
