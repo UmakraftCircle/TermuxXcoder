@@ -113,6 +113,10 @@ class OfflinePreloadService {
     this.offlineAiRuleCache.set('posix_pty', 'Native terminal uses Bionic libc forkpty() with masterFd non-blocking flags and RAW termios mode for xterm-256color.');
     this.offlineAiRuleCache.set('sora_editor', 'Sora Editor 0.23.5 renders TextMate grammar highlighting with incremental token parsing on UI thread safely.');
     this.offlineAiRuleCache.set('gradle_kts', 'AGP 8.4.2 / 8.8.0 with Kotlin DSL and Java 21 toolchain with compileSdk=34 and minSdk=29.');
+    this.offlineAiRuleCache.set('build_cache', 'Gradle build cache (.gradle/build-cache) stores pre-compiled task outputs for DEX compilation, AAPT2 resource flattening, and C++ NDK binaries to reduce build times by 75%+. Purge via /api/build-cache/clean.');
+    this.offlineAiRuleCache.set('git_hooks', 'Git lifecycle hooks in .git/hooks/ (pre-commit, commit-msg, pre-push) enforce Conventional Commits format, spotless Kotlin formatting, and secret leak scanning.');
+    this.offlineAiRuleCache.set('gradle_inspector', 'AGP 8.4.2 & Gradle 8.7 task execution graph with 10 modular subprojects (:app:kspDebugKotlin, :app:compileDebugKotlin, :app:mergeDebugNativeLibs, :app:assembleDebug).');
+    this.offlineAiRuleCache.set('cicd_pipeline', 'GitHub Actions 5-stage workflow (Trigger -> Setup JDK 21 -> Static Lint/Test -> APK Assembly -> Release Signing) with SHA-256 artifact verification.');
     this.offlineAiRuleCache.set('ndk_cmake', 'CMake 3.22.1 with C++20 standard (-std=c++20) for arm64-v8a and x86_64 ABI targets.');
     this.offlineAiRuleCache.set('typescript', 'Strict type checking with ES2022 targets and NodeNext module resolution.');
     this.offlineAiRuleCache.set('python', 'Python 3.11 with asyncio non-blocking event loop and SQLite thread-safety.');
@@ -464,6 +468,43 @@ Java_com_termux_terminal_TerminalSession_createPty(
 }
 \`\`\`
 *Generated locally from preloaded C++ NDK grammar rules in /models/default.gguf.*`;
+    }
+
+    if (lower.includes('cache') || lower.includes('build-cache') || lower.includes('purge')) {
+      return `### ⚡ Hardcoded Local AI (Build Cache Specialist)
+
+**Gradle & Kotlin Build Cache Engine:**
+The workspace utilizes a tiered caching mechanism across 4 major buckets:
+1. \`.gradle/build-cache\`: Stores compiled DEX outputs & merged native binaries (91.2% hit rate).
+2. \`.gradle/caches/transforms\`: AAR dependency desugaring & ProGuard metadata (94.5% hit rate).
+3. \`build/intermediates/incremental\`: Kotlin 2.0.0 incremental compilation state.
+4. \`app/build/intermediates/res/merged\`: Flattened AAPT2 resource cache.
+
+#### 💡 **CLI Optimization Tip:**
+\`\`\`bash
+# Run build with caching & parallel threads enabled
+./gradlew assembleDebug --build-cache --parallel --daemon
+\`\`\`
+*Calculated cache stats are available in the **Build Inspector > Build Cache Stats** dashboard.*`;
+    }
+
+    if (lower.includes('hook') || lower.includes('git hook') || lower.includes('pre-commit') || lower.includes('webhook')) {
+      return `### 🔒 Hardcoded Local AI (Git DevOps Specialist)
+
+**Git Lifecycle Hooks & Automation (.git/hooks/):**
+- **pre-commit**: Enforces Spotless Kotlin style linting and secret scanning before staging.
+- **commit-msg**: Verifies Conventional Commits specification (\`feat:\`, \`fix:\`, \`chore:\`, \`refactor:\`).
+- **pre-push**: Runs \`./gradlew testDebugUnitTest\` prior to pushing to remote.
+- **post-receive / Webhooks**: Triggers GitHub Actions with HMAC-SHA256 authenticated payload.
+
+#### 💡 **Pre-Commit Hook Script Example:**
+\`\`\`bash
+#!/bin/sh
+# .git/hooks/pre-commit
+echo "🔍 Running pre-commit static analysis..."
+./gradlew lintDebug --no-daemon || { echo "❌ Lint failed"; exit 1; }
+\`\`\`
+*Managed dynamically via the **Workflows > Git Connect & Hooks** tab.*`;
     }
 
     if (matchedExample) {

@@ -12,13 +12,18 @@ import {
   FileCheck,
   Zap,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  HardDrive,
+  Sliders
 } from 'lucide-react';
 import { BuildDiagnostic } from '../types';
 import { INITIAL_DIAGNOSTICS } from '../data/diagnostics';
 import confetti from 'canvas-confetti';
+import { BuildCacheStatsTab } from './BuildCacheStatsTab';
+import { GradleInspectorTab } from './GradleInspectorTab';
 
 export const BuildInspectorTab: React.FC = () => {
+  const [activeSubTab, setActiveSubTab] = useState<'diagnostics' | 'cache' | 'gradle'>('diagnostics');
   const [diagnostics, setDiagnostics] = useState<BuildDiagnostic[]>(INITIAL_DIAGNOSTICS);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationStep, setSimulationStep] = useState<number>(0);
@@ -107,9 +112,63 @@ export const BuildInspectorTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* 3 Metric Bento Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="space-y-4 max-w-7xl mx-auto font-sans" id="build-inspector-master-container">
+      {/* Top Sub-Tab Navigation Switcher */}
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-2 flex items-center justify-between gap-2 overflow-x-auto scrollbar-none shadow-sm">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <button
+            onClick={() => setActiveSubTab('diagnostics')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+              activeSubTab === 'diagnostics'
+                ? 'bg-[#1f6feb] text-white shadow-md shadow-[#1f6feb]/20'
+                : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
+            }`}
+          >
+            <FileCheck className="h-4 w-4" />
+            <span>Pre-Flight Diagnostics</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('cache')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+              activeSubTab === 'cache'
+                ? 'bg-[#1f6feb] text-white shadow-md shadow-[#1f6feb]/20'
+                : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
+            }`}
+          >
+            <HardDrive className="h-4 w-4" />
+            <span>Build Cache Stats</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('gradle')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+              activeSubTab === 'gradle'
+                ? 'bg-[#1f6feb] text-white shadow-md shadow-[#1f6feb]/20'
+                : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#21262d]'
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            <span>Gradle Inspector & DAG</span>
+          </button>
+        </div>
+
+        <span className="text-[11px] font-mono text-[#8b949e] hidden sm:block px-2">
+          AGP 8.4 • JDK 21
+        </span>
+      </div>
+
+      {/* VIEW 1: BUILD CACHE STATS */}
+      {activeSubTab === 'cache' && <BuildCacheStatsTab />}
+
+      {/* VIEW 2: GRADLE INSPECTOR */}
+      {activeSubTab === 'gradle' && <GradleInspectorTab />}
+
+      {/* VIEW 3: PRE-FLIGHT DIAGNOSTICS */}
+      {activeSubTab === 'diagnostics' && (
+        <div className="space-y-6">
+          {/* 3 Metric Bento Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-4 flex items-center justify-between shadow-sm hover:border-[#8b949e]/40 transition-colors">
           <div>
             <p className="text-xs text-[#8b949e]">Architecture Readiness</p>
@@ -225,5 +284,7 @@ export const BuildInspectorTab: React.FC = () => {
         </div>
       </div>
     </div>
+    )}
+  </div>
   );
 };

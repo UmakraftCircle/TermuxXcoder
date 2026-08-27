@@ -81,7 +81,7 @@ export const SlideTerminalDrawer: React.FC<SlideTerminalDrawerProps> = ({
     {
       id: 'workflows',
       name: 'Workflows',
-      subtitle: 'CI/CD Matrix',
+      subtitle: 'CI/CD & Git Hooks',
       icon: Workflow,
       gradient: 'from-violet-600 to-purple-600',
       iconColor: 'text-violet-200'
@@ -96,8 +96,8 @@ export const SlideTerminalDrawer: React.FC<SlideTerminalDrawerProps> = ({
     },
     {
       id: 'diagnostics',
-      name: 'APK Inspector',
-      subtitle: 'Pre-flight Check',
+      name: 'Build Inspector',
+      subtitle: 'Gradle & Cache Stats',
       icon: FileCheck2,
       gradient: 'from-rose-600 to-red-600',
       iconColor: 'text-rose-200'

@@ -19,10 +19,14 @@ import {
   Clock,
   Terminal,
   Settings,
-  KeyRound
+  KeyRound,
+  GitFork,
+  ShieldCheck
 } from 'lucide-react';
 import { ProjectFile } from '../types';
 import confetti from 'canvas-confetti';
+import { CicdPipelineVisualizer } from './CicdPipelineVisualizer';
+import { GitHooksTab } from './GitHooksTab';
 
 interface WorkflowsTabProps {
   files: ProjectFile[];
@@ -33,7 +37,7 @@ interface WorkflowsTabProps {
 export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({ files, onSelectFile, onOpenInEditor }) => {
   const [selectedWorkflow, setSelectedWorkflow] = useState<'android' | 'release' | 'lint'>('android');
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'yaml' | 'pipeline' | 'secrets'>('pipeline');
+  const [activeTab, setActiveTab] = useState<'visualizer' | 'matrix' | 'git-hooks' | 'yaml' | 'secrets'>('visualizer');
 
   const workflows = {
     android: {
@@ -189,33 +193,55 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({ files, onSelectFile,
           </button>
         </div>
 
-        {/* Right: Sub-View Mode Toggle (Pipeline Steps | Raw YAML | Secrets Vault) */}
-        <div className="flex items-center bg-[#0d1117] p-1 rounded-xl border border-[#30363d] self-start sm:self-auto shrink-0">
+        {/* Right: Sub-View Mode Toggle (Pipeline Visualizer | Steps Matrix | Git Hooks | Raw YAML | Secrets Vault) */}
+        <div className="flex items-center bg-[#0d1117] p-1 rounded-xl border border-[#30363d] self-start sm:self-auto shrink-0 overflow-x-auto scrollbar-none">
           <button
-            onClick={() => setActiveTab('pipeline')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-              activeTab === 'pipeline'
+            onClick={() => setActiveTab('visualizer')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
+              activeTab === 'visualizer'
+                ? 'bg-[#21262d] text-[#bc8cff] border border-[#bc8cff]/30 shadow-sm'
+                : 'text-[#8b949e] hover:text-white'
+            }`}
+          >
+            <GitFork className="h-3 w-3" />
+            <span>DAG Visualizer</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('matrix')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
+              activeTab === 'matrix'
                 ? 'bg-[#21262d] text-[#58a6ff] border border-[#58a6ff]/30 shadow-sm'
                 : 'text-[#8b949e] hover:text-white'
             }`}
           >
             <Layers className="h-3 w-3" />
-            <span>Pipeline Matrix</span>
+            <span>Steps Matrix</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('git-hooks')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
+              activeTab === 'git-hooks'
+                ? 'bg-[#21262d] text-[#3fb950] border border-[#3fb950]/30 shadow-sm'
+                : 'text-[#8b949e] hover:text-white'
+            }`}
+          >
+            <ShieldCheck className="h-3 w-3" />
+            <span>Git Connect & Hooks</span>
           </button>
           <button
             onClick={() => setActiveTab('yaml')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
               activeTab === 'yaml'
                 ? 'bg-[#21262d] text-[#58a6ff] border border-[#58a6ff]/30 shadow-sm'
                 : 'text-[#8b949e] hover:text-white'
             }`}
           >
             <FileCode className="h-3 w-3" />
-            <span>YAML Source</span>
+            <span>YAML</span>
           </button>
           <button
             onClick={() => setActiveTab('secrets')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
               activeTab === 'secrets'
                 ? 'bg-[#21262d] text-[#ffa657] border border-[#ffa657]/30 shadow-sm'
                 : 'text-[#8b949e] hover:text-white'
@@ -229,8 +255,18 @@ export const WorkflowsTab: React.FC<WorkflowsTabProps> = ({ files, onSelectFile,
 
       {/* 3. Sub-View Contents */}
 
-      {/* VIEW A: INTERACTIVE PIPELINE MATRIX */}
-      {activeTab === 'pipeline' && (
+      {/* VIEW 1: DAG PIPELINE VISUALIZER */}
+      {activeTab === 'visualizer' && (
+        <CicdPipelineVisualizer />
+      )}
+
+      {/* VIEW 2: GIT CONNECT & HOOKS */}
+      {activeTab === 'git-hooks' && (
+        <GitHooksTab />
+      )}
+
+      {/* VIEW 3: STEPS MATRIX */}
+      {activeTab === 'matrix' && (
         <div className="space-y-3">
           {/* Workflow Summary Header */}
           <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-3 flex items-center justify-between gap-2">

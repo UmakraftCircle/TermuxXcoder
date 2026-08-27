@@ -261,7 +261,7 @@ export default function App() {
     >
       {/* Top Header */}
       <Header
-        files={appFiles}
+        files={[...appFiles, ...sandboxFiles]}
         activeTab={activeTab}
         onOpenQuickPush={() => setIsQuickPushOpen(true)}
         onOpenPermissions={() => setIsPermissionsModalOpen(true)}
