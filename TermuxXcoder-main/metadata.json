@@ -1,0 +1,21 @@
+{
+  "name": "TermuxXCoder",
+  "version": "0.2.0",
+  "description": "Browser-based Android dev companion prototype — security-audited rebuild. This is a UI demonstration with honest security primitives, not a production IDE, autonomous agent, or verified build system.",
+  "status": "prototype",
+  "capabilities": {
+    "localAi": "heuristic-fallback",
+    "cloudAi": "client-side-only",
+    "buildVerification": "not-run",
+    "androidBuild": "not-included",
+    "encryption": "aes-gcm-browser",
+    "checksum": "sha-256-webcrypto"
+  },
+  "securityNotes": [
+    "No server-side command execution.",
+    "No hardcoded credentials.",
+    "No SSRF surface.",
+    "AI keys are session-only, never persisted.",
+    "All status labels are observable, not absolute."
+  ]
+}
