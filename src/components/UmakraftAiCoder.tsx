@@ -71,6 +71,7 @@ import { sandboxUndoRedoManager } from '../utils/undoRedoManager';
 import {
   parseUploadedFiles,
   parseZipArchive,
+  parseZstdArchive,
   createNewSandboxFile
 } from '../utils/sandboxFileManager';
 
@@ -990,13 +991,17 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
     }
   };
 
-  // Import ZIP Archive
+  // Import ZIP / Zstandard Archive
   const handleZipInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setIsImporting(true);
       try {
-        const zipFile = e.target.files[0];
-        const parsed = await parseZipArchive(zipFile);
+        const archiveFile = e.target.files[0];
+        const isZstd = archiveFile.name.toLowerCase().endsWith('.zst') || archiveFile.name.toLowerCase().endsWith('.zstandard');
+        const parsed = isZstd
+          ? await parseZstdArchive(archiveFile)
+          : await parseZipArchive(archiveFile);
+
         if (parsed.length > 0) {
           const nextFiles = [
             ...parsed,
@@ -1005,8 +1010,8 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
           sandboxUndoRedoManager.pushSnapshot({
             actionType: 'file_import',
             filePath: parsed[0].path,
-            fileName: zipFile.name,
-            description: `Imported ${parsed.length} files from ${zipFile.name}`,
+            fileName: archiveFile.name,
+            description: `Imported ${parsed.length} files from ${archiveFile.name}`,
             files: nextFiles,
             activeFilePath: parsed[0].path,
             force: true
@@ -1017,8 +1022,8 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
           setSelectedFilePath(parsed[0].path);
           confetti({ particleCount: 60, spread: 70, origin: { y: 0.4 } });
         }
-      } catch (err) {
-        console.error('Failed to import ZIP:', err);
+      } catch (err: any) {
+        console.error('Failed to import archive:', err);
       } finally {
         setIsImporting(false);
         setIsImportMenuOpen(false);
@@ -1466,7 +1471,7 @@ export const UmakraftAiCoder: React.FC<UmakraftAiCoderProps> = ({
         type="file"
         ref={zipInputRef}
         onChange={handleZipInputChange}
-        accept=".zip"
+        accept=".zip,.zst,.tar.zst,.zstandard"
         className="hidden"
       />
       <input

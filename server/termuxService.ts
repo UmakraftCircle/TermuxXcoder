@@ -1,7 +1,18 @@
 import path from "path";
 import fs from "fs";
-import { exec } from "child_process";
+import { exec, spawn, ChildProcess } from "child_process";
 import { Express } from "express";
+
+interface ManagedJob {
+  jobId: number;
+  pid: number;
+  command: string;
+  startTime: number;
+  status: "running" | "stopped" | "failed";
+  exitCode: number | null;
+  logs: string[];
+  child: ChildProcess;
+}
 
 export function registerTermuxRoutes(app: Express) {
   // Persistent Hardcoded Linux Filesystem & Embedded Assets Initialization
@@ -15,6 +26,107 @@ export function registerTermuxRoutes(app: Express) {
   const TERMUX_TEMPLATES = path.resolve(process.cwd(), "sandbox/system/templates");
   const TERMUX_STORAGE = path.resolve(process.cwd(), "sandbox/storage");
   const TERMUX_PKG_DB = path.resolve(TERMUX_FS_ROOT, "installed_packages.json");
+
+  // Active background process registry
+  const managedJobs = new Map<number, ManagedJob>();
+  let nextJobId = 1;
+
+  // Helper to spawn and manage a real long-running background process
+  const spawnBackgroundJob = (
+    cmd: string,
+    targetCwd: string,
+    env: NodeJS.ProcessEnv,
+    waitMs: number = 800
+  ): Promise<{ output: string; exitCode: number; pid?: number; jobId?: number }> => {
+    return new Promise((resolve) => {
+      const jobId = nextJobId++;
+      const child = spawn("/bin/bash", ["-c", cmd], {
+        cwd: targetCwd,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false
+      });
+
+      const pid = child.pid || 0;
+      const initialLogs: string[] = [];
+      let hasResolved = false;
+
+      const jobRecord: ManagedJob = {
+        jobId,
+        pid,
+        command: cmd,
+        startTime: Date.now(),
+        status: "running",
+        exitCode: null,
+        logs: initialLogs,
+        child
+      };
+
+      managedJobs.set(pid, jobRecord);
+
+      const appendLog = (chunk: Buffer | string) => {
+        const str = chunk.toString();
+        const lines = str.split("\n");
+        for (const line of lines) {
+          if (line) {
+            jobRecord.logs.push(line);
+            if (jobRecord.logs.length > 500) jobRecord.logs.shift();
+          }
+        }
+        if (!hasResolved) {
+          initialLogs.push(str);
+        }
+      };
+
+      child.stdout?.on("data", appendLog);
+      child.stderr?.on("data", appendLog);
+
+      child.on("error", (err) => {
+        jobRecord.status = "failed";
+        jobRecord.logs.push(`[Error: ${err.message}]`);
+        if (!hasResolved) {
+          hasResolved = true;
+          resolve({
+            output: `Failed to start process: ${err.message}`,
+            exitCode: 1,
+            pid,
+            jobId
+          });
+        }
+      });
+
+      child.on("exit", (code, signal) => {
+        jobRecord.status = code === 0 ? "stopped" : "failed";
+        jobRecord.exitCode = code;
+        jobRecord.logs.push(`[Process exited with code ${code ?? signal}]`);
+        if (!hasResolved) {
+          hasResolved = true;
+          const out = initialLogs.join("").trim();
+          resolve({
+            output: out || `[Process exited immediately with code ${code ?? signal}]`,
+            exitCode: code ?? 1,
+            pid,
+            jobId
+          });
+        }
+      });
+
+      // Wait brief grace period to capture startup output or immediate failure
+      setTimeout(() => {
+        if (!hasResolved) {
+          hasResolved = true;
+          const out = initialLogs.join("").trim();
+          const banner = out ? `${out}\n` : "";
+          resolve({
+            output: `${banner}[Process PID ${pid} (Job [${jobId}]) running in background]`,
+            exitCode: 0,
+            pid,
+            jobId
+          });
+        }
+      }, waitMs);
+    });
+  };
 
   // Ensure hardcoded filesystem directories exist immediately on boot
   [
@@ -89,6 +201,8 @@ export function registerTermuxRoutes(app: Express) {
           { command: "curl", path: "/usr/bin/curl", package: "curl", category: "network" },
           { command: "wget", path: "/usr/bin/wget", package: "wget", category: "network" },
           { command: "tar", path: "/usr/bin/tar", package: "tar", category: "archive" },
+          { command: "zstd", path: "/usr/bin/zstd", package: "zstd", category: "archive" },
+          { command: "unzstd", path: "/usr/bin/unzstd", package: "zstd", category: "archive" },
           { command: "zip", path: "/usr/bin/zip", package: "zip", category: "archive" },
           { command: "openssh", path: "/usr/bin/ssh", package: "openssh", category: "network" }
         ],
@@ -101,7 +215,7 @@ export function registerTermuxRoutes(app: Express) {
   // Load persistent installed packages
   const installedPackages = new Set<string>([
     "bash", "nodejs", "python", "git", "curl", "wget", "clang", "make", "cmake",
-    "ninja", "openssh", "zip", "unzip", "tar", "nano", "vim", "sqlite", "openjdk-21",
+    "ninja", "openssh", "zip", "unzip", "tar", "zstd", "nano", "vim", "sqlite", "openjdk-21",
     "sora-editor", "termux-tools", "neofetch", "jq", "tree", "qwen-local-engine"
   ]);
 
@@ -136,10 +250,19 @@ export function registerTermuxRoutes(app: Express) {
     timeoutMs: number = 25000
   ): Promise<{ output: string; exitCode: number; cwd: string; rawCwd: string }> => {
     return new Promise((resolve) => {
-      const lower = rawCmd.toLowerCase();
+      const lower = rawCmd.trim().toLowerCase();
+      const trimmedCmd = rawCmd.trim();
 
-      // 1. Handle cd
-      if (lower === "cd" || lower.startsWith("cd ")) {
+      // Check if command is a multi-command chain (has ;, &&, ||, |, or newlines)
+      const isChainedOrMultiline =
+        trimmedCmd.includes(";") ||
+        trimmedCmd.includes("&&") ||
+        trimmedCmd.includes("||") ||
+        trimmedCmd.includes("|") ||
+        trimmedCmd.includes("\n");
+
+      // 1. Single standalone 'cd' command (only if not chained)
+      if (!isChainedOrMultiline && (lower === "cd" || lower.startsWith("cd "))) {
         const target = rawCmd.slice(2).trim() || process.cwd();
         let nextDir = path.resolve(targetCwd, target);
 
@@ -167,8 +290,8 @@ export function registerTermuxRoutes(app: Express) {
         }
       }
 
-      // 2. Termux NeoFetch
-      if (lower === "neofetch") {
+      // 2. Termux NeoFetch (single standalone)
+      if (!isChainedOrMultiline && lower === "neofetch") {
         const mem = process.memoryUsage();
         const memUsedMb = Math.round(mem.rss / 1024 / 1024);
         const uptimeMin = Math.floor(process.uptime() / 60);
@@ -196,8 +319,8 @@ export function registerTermuxRoutes(app: Express) {
         });
       }
 
-      // 3. Termux Info
-      if (lower === "termux-info" || lower === "termux-tools") {
+      // 3. Termux Info (single standalone)
+      if (!isChainedOrMultiline && (lower === "termux-info" || lower === "termux-tools")) {
         const info = [
           "Termux Environment Variables [Persistent POSIX /dev/ptmx]:",
           "ANDROID_DATA=/data",
@@ -223,8 +346,8 @@ export function registerTermuxRoutes(app: Express) {
         });
       }
 
-      // 4. Termux Setup Storage
-      if (lower.startsWith("termux-setup-storage")) {
+      // 4. Termux Setup Storage (single standalone)
+      if (!isChainedOrMultiline && lower.startsWith("termux-setup-storage")) {
         const storageDir = path.resolve(targetCwd, "storage");
         if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
         ["shared", "downloads", "pictures", "dcim", "music"].forEach((d) => {
@@ -240,8 +363,8 @@ export function registerTermuxRoutes(app: Express) {
         });
       }
 
-      // 5. Termux Package Manager (pkg / apt / dpkg)
-      if (lower.startsWith("pkg ") || lower.startsWith("apt ") || lower.startsWith("apt-get ") || lower.startsWith("dpkg ") || lower === "pkg" || lower === "apt") {
+      // 5. Termux Package Manager (pkg / apt / dpkg) (single standalone)
+      if (!isChainedOrMultiline && (lower.startsWith("pkg ") || lower.startsWith("apt ") || lower.startsWith("apt-get ") || lower.startsWith("dpkg ") || lower === "pkg" || lower === "apt")) {
         const parts = rawCmd.split(/\s+/);
         const action = parts[1]?.toLowerCase();
         const pkgName = parts[2]?.toLowerCase() || "";
@@ -326,44 +449,247 @@ export function registerTermuxRoutes(app: Express) {
         }
       }
 
-      // 6. Real Shell Execution via Container Child Process
-      exec(
-        rawCmd,
-        {
-          cwd: targetCwd,
-          timeout: timeoutMs,
-          maxBuffer: 4 * 1024 * 1024,
-          env: {
-            ...process.env,
-            PREFIX: "/data/data/com.termux/files/usr",
-            HOME: targetCwd,
-            TERM: "xterm-256color",
-            SHELL: "/data/data/com.termux/files/usr/bin/bash",
-            LANG: "en_US.UTF-8",
-            PATH: `${TERMUX_BIN}:${process.env.PATH}:/data/data/com.termux/files/usr/bin`
-          }
-        },
-        (error, stdout, stderr) => {
-          let output = "";
-          if (stdout) output += stdout;
-          if (stderr) output += (output ? "\n" : "") + stderr;
-
-          if (error && !output) {
-            output = error.message;
-          }
-
-          if (!output.trim()) {
-            output = error ? `[Exit Code: ${error.code || 1}]` : "";
-          }
-
-          resolve({
-            output: output.trimEnd(),
-            exitCode: error ? error.code || 1 : 0,
+      // 6. Builtin Process & Job Management (jobs, kill, job-logs) (single standalone)
+      if (!isChainedOrMultiline && (lower === "jobs" || lower === "termux-jobs" || lower === "bg")) {
+        const activeList = Array.from(managedJobs.values()).filter((j) => j.status === "running");
+        if (activeList.length === 0) {
+          return resolve({
+            output: "No active background jobs running.",
+            exitCode: 0,
             cwd: targetCwd.replace(process.cwd(), "~"),
             rawCwd: targetCwd
           });
         }
+        const lines = activeList.map((job, idx) => {
+          const elapsedSec = Math.floor((Date.now() - job.startTime) / 1000);
+          const prefix = idx === activeList.length - 1 ? "+" : "-";
+          return `[${job.jobId}]${prefix}  Running                 ${job.command} (PID: ${job.pid}, uptime: ${elapsedSec}s)`;
+        });
+        return resolve({
+          output: lines.join("\n"),
+          exitCode: 0,
+          cwd: targetCwd.replace(process.cwd(), "~"),
+          rawCwd: targetCwd
+        });
+      }
+
+      if (!isChainedOrMultiline && (lower.startsWith("job-logs ") || lower.startsWith("joblogs ") || lower.startsWith("logs "))) {
+        const targetId = rawCmd.split(/\s+/)[1]?.replace("%", "");
+        let job = managedJobs.get(Number(targetId));
+        if (!job) {
+          job = Array.from(managedJobs.values()).find((j) => j.jobId === Number(targetId) || String(j.pid) === targetId);
+        }
+        if (job) {
+          const logText = job.logs.length > 0 ? job.logs.join("\n") : "(No output captured yet)";
+          return resolve({
+            output: `Logs for Job [${job.jobId}] PID ${job.pid} (${job.command}) [Status: ${job.status}]:\n${logText}`,
+            exitCode: 0,
+            cwd: targetCwd.replace(process.cwd(), "~"),
+            rawCwd: targetCwd
+          });
+        } else {
+          return resolve({
+            output: `jobs: ${targetId}: no such job`,
+            exitCode: 1,
+            cwd: targetCwd.replace(process.cwd(), "~"),
+            rawCwd: targetCwd
+          });
+        }
+      }
+
+      // 7. Process Execution Environment
+      const execEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        PREFIX: "/data/data/com.termux/files/usr",
+        HOME: targetCwd,
+        TERM: "xterm-256color",
+        SHELL: "/bin/bash",
+        LANG: "en_US.UTF-8",
+        OLLAMA_HOST: "127.0.0.1:11434",
+        PATH: `${TERMUX_BIN}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH}:/data/data/com.termux/files/usr/bin`
+      };
+
+      // 8. Handle explicit backgrounding (`&` or `nohup`)
+      const isExplicitBg = !isChainedOrMultiline && (trimmedCmd.endsWith("&") || trimmedCmd.startsWith("nohup "));
+      
+      // 9. Handle known server / daemon commands that should remain alive in background
+      const isDaemonServer = !isChainedOrMultiline && (
+        /python(3)?\s+-m\s+http\.server/i.test(trimmedCmd) ||
+        /ollama\s+(serve|start)/i.test(trimmedCmd) ||
+        /npx\s+(http-server|serve|live-server)/i.test(trimmedCmd) ||
+        /php\s+-S\s+/i.test(trimmedCmd) ||
+        /\b(uvicorn|gunicorn|flask\s+run|fastapi\s+dev)\b/i.test(trimmedCmd) ||
+        /\b(redis-server|mongod)\b/i.test(trimmedCmd)
       );
+
+      if (isExplicitBg || isDaemonServer) {
+        let cleanCmd = trimmedCmd;
+        if (cleanCmd.endsWith("&")) {
+          cleanCmd = cleanCmd.slice(0, -1).trim();
+        }
+        if (cleanCmd.startsWith("nohup ")) {
+          cleanCmd = cleanCmd.slice(6).trim();
+        }
+
+        return spawnBackgroundJob(cleanCmd, targetCwd, execEnv, isDaemonServer ? 1000 : 500)
+          .then((bgRes) => {
+            resolve({
+              output: bgRes.output,
+              exitCode: bgRes.exitCode,
+              cwd: targetCwd.replace(process.cwd(), "~"),
+              rawCwd: targetCwd
+            });
+          })
+          .catch((err) => {
+            resolve({
+              output: `Error launching background process: ${err.message}`,
+              exitCode: 1,
+              cwd: targetCwd.replace(process.cwd(), "~"),
+              rawCwd: targetCwd
+            });
+          });
+      }
+
+      // 10. Handle kill command synchronization with managedJobs
+      if (!isChainedOrMultiline && (lower.startsWith("kill ") || lower.startsWith("pkill ") || lower.startsWith("killall "))) {
+        const parts = rawCmd.trim().split(/\s+/);
+        let killedAny = false;
+        let killMsg = "";
+        let hasPercentSpecifier = false;
+        let requestedJobNum: number | null = null;
+
+        for (const p of parts) {
+          if (p.startsWith("%")) {
+            hasPercentSpecifier = true;
+          }
+          const cleanP = p.replace("%", "");
+          const num = Number(cleanP);
+          if (!isNaN(num) && num > 0) {
+            if (p.startsWith("%")) requestedJobNum = num;
+            const job = managedJobs.get(num) || Array.from(managedJobs.values()).find((j) => j.jobId === num || j.pid === num);
+            if (job && job.status === "running") {
+              try {
+                job.child.kill("SIGTERM");
+                job.status = "stopped";
+                killedAny = true;
+                killMsg += `[Job [${job.jobId}] PID ${job.pid} (${job.command}) terminated]\n`;
+              } catch {
+                // Ignore if already dead
+              }
+            }
+          }
+        }
+
+        if (killedAny) {
+          return resolve({
+            output: killMsg.trim(),
+            exitCode: 0,
+            cwd: currentTermuxCwd.replace(process.cwd(), "~"),
+            rawCwd: currentTermuxCwd
+          });
+        }
+
+        // If the user specified a job via % (e.g. %1 or %2) but it wasn't found, output a clear POSIX job error
+        if (hasPercentSpecifier) {
+          const activeJobs = Array.from(managedJobs.values()).filter((j) => j.status === "running");
+          const activeListStr = activeJobs.map((j) => `[${j.jobId}] PID ${j.pid} (${j.command})`).join(", ");
+          return resolve({
+            output: `bash: kill: %${requestedJobNum ?? ""}: no such job${activeListStr ? ` (active background jobs: ${activeListStr})` : " (no active background jobs)"}`,
+            exitCode: 1,
+            cwd: currentTermuxCwd.replace(process.cwd(), "~"),
+            rawCwd: currentTermuxCwd
+          });
+        }
+      }
+
+      // 11. Full Native POSIX bash execution with CWD tracking & metacharacter support
+      // We wrap the command to extract final directory upon exit
+      const PWD_MARKER = "__TERMUX_CWD_TRACKING_MARKER__";
+      const wrappedScript = `${rawCmd}\n__EXIT_CODE__=$?\necho -n "${PWD_MARKER}:$(pwd)"\nexit $__EXIT_CODE__`;
+
+      const child = spawn("/bin/bash", ["-c", wrappedScript], {
+        cwd: targetCwd,
+        env: execEnv,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+
+      let stdoutAccum = "";
+      let stderrAccum = "";
+      let completed = false;
+
+      child.stdout?.on("data", (chunk) => {
+        stdoutAccum += chunk.toString();
+      });
+
+      child.stderr?.on("data", (chunk) => {
+        stderrAccum += chunk.toString();
+      });
+
+      const timer = setTimeout(() => {
+        if (!completed) {
+          completed = true;
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            // Non-blocking
+          }
+          let out = stdoutAccum;
+          const markerIdx = out.lastIndexOf(PWD_MARKER + ":");
+          if (markerIdx !== -1) {
+            out = out.substring(0, markerIdx);
+          }
+          if (stderrAccum) out += (out ? "\n" : "") + stderrAccum;
+          out = out.trim();
+
+          resolve({
+            output: out ? `${out}\n[Command timed out after ${Math.round(timeoutMs / 1000)}s]` : `[Command timed out after ${Math.round(timeoutMs / 1000)}s]`,
+            exitCode: 124,
+            cwd: currentTermuxCwd.replace(process.cwd(), "~"),
+            rawCwd: currentTermuxCwd
+          });
+        }
+      }, timeoutMs);
+
+      child.on("error", (err) => {
+        if (!completed) {
+          completed = true;
+          clearTimeout(timer);
+          resolve({
+            output: `bash: ${err.message}`,
+            exitCode: 1,
+            cwd: currentTermuxCwd.replace(process.cwd(), "~"),
+            rawCwd: currentTermuxCwd
+          });
+        }
+      });
+
+      child.on("exit", (code, signal) => {
+        if (!completed) {
+          completed = true;
+          clearTimeout(timer);
+
+          let cleanStdout = stdoutAccum;
+          const markerIdx = cleanStdout.lastIndexOf(PWD_MARKER + ":");
+          if (markerIdx !== -1) {
+            const extractedDir = cleanStdout.substring(markerIdx + (PWD_MARKER + ":").length).trim();
+            cleanStdout = cleanStdout.substring(0, markerIdx);
+            if (extractedDir && fs.existsSync(extractedDir) && fs.statSync(extractedDir).isDirectory()) {
+              currentTermuxCwd = extractedDir;
+            }
+          }
+
+          let combined = cleanStdout;
+          if (stderrAccum) combined += (combined ? "\n" : "") + stderrAccum;
+          const trimmedOut = combined.trimEnd();
+
+          resolve({
+            output: trimmedOut || (code && code !== 0 ? `[Exit Code: ${code}]` : ""),
+            exitCode: code ?? (signal ? 1 : 0),
+            cwd: currentTermuxCwd.replace(process.cwd(), "~"),
+            rawCwd: currentTermuxCwd
+          });
+        }
+      });
     });
   };
 
@@ -419,6 +745,36 @@ export function registerTermuxRoutes(app: Express) {
       prefix: "/data/data/com.termux/files/usr",
       home: "/data/data/com.termux/files/home"
     });
+  });
+
+  // Background Jobs Management API
+  app.get("/api/termux/jobs", (req, res) => {
+    const jobs = Array.from(managedJobs.values()).map((job) => ({
+      jobId: job.jobId,
+      pid: job.pid,
+      command: job.command,
+      status: job.status,
+      exitCode: job.exitCode,
+      uptimeSeconds: Math.floor((Date.now() - job.startTime) / 1000),
+      recentLogs: job.logs.slice(-20)
+    }));
+    res.json({ jobs });
+  });
+
+  app.post("/api/termux/kill", (req, res) => {
+    const { target } = req.body;
+    const num = Number(String(target).replace("%", ""));
+    const job = managedJobs.get(num) || Array.from(managedJobs.values()).find((j) => j.jobId === num || j.pid === num);
+    if (job) {
+      try {
+        job.child.kill("SIGTERM");
+        job.status = "stopped";
+        return res.json({ success: true, message: `Terminated Job [${job.jobId}] PID ${job.pid}` });
+      } catch (err: any) {
+        return res.status(500).json({ error: err.message });
+      }
+    }
+    res.status(404).json({ error: "Job not found" });
   });
 
   // AI Agent Terminal Command Runner with Automatic Dependency Detection & File Watch

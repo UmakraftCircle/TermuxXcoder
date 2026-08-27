@@ -61,6 +61,7 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = ({ files: _files 
   const [activeSubTab, setActiveSubTab] = useState<'terminal' | 'ai_agent' | 'packages' | 'filesystem' | 'github_push' | 'push_script'>('terminal');
   const [commandInput, setCommandInput] = useState('');
   const [copiedLog, setCopiedLog] = useState(false);
+  const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
   const [currentCwd, setCurrentCwd] = useState('~');
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
@@ -161,6 +162,48 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = ({ files: _files 
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
+  const handleCopyAllLogs = async () => {
+    try {
+      const fullText = logs
+        .map((l) => l.text.replace(/\x1b\[[0-9;]*m/g, ''))
+        .join('\n');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(fullText);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = fullText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedLog(true);
+      setTimeout(() => setCopiedLog(false), 2000);
+    } catch {
+      // Fallback safe
+    }
+  };
+
+  const handleCopySingleLog = async (text: string, id: string) => {
+    try {
+      const cleaned = text.replace(/\x1b\[[0-9;]*m/g, '');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(cleaned);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = cleaned;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedLogId(id);
+      setTimeout(() => setCopiedLogId(null), 2000);
+    } catch {
+      // Fallback safe
+    }
+  };
+
   const getTimeString = () => {
     const now = new Date();
     return now.toTimeString().split(' ')[0];
@@ -213,8 +256,14 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = ({ files: _files 
     setIsRunningCommand(true);
 
     const lower = trimmed.toLowerCase();
+    const isChained =
+      trimmed.includes(';') ||
+      trimmed.includes('&&') ||
+      trimmed.includes('||') ||
+      trimmed.includes('|') ||
+      trimmed.includes('\n');
 
-    if (lower === 'clear' || lower === 'cls') {
+    if (!isChained && (lower === 'clear' || lower === 'cls')) {
       setLogs([
         {
           id: Math.random().toString(36).substring(7),
@@ -227,7 +276,7 @@ export const TerminalPageTab: React.FC<TerminalPageTabProps> = ({ files: _files 
       return;
     }
 
-    if (lower.startsWith('git push') || lower === 'push') {
+    if (!isChained && (lower === 'git push' || lower.startsWith('git push ') || lower === 'push')) {
       handleSimulateGitPush();
       setIsRunningCommand(false);
       return;
@@ -757,6 +806,24 @@ git push -u origin ${targetBranch}
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyAllLogs}
+                  title="Copy all terminal output to clipboard"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[11px] font-mono text-[#c9d1d9] hover:text-white transition-all active:scale-95 shadow-sm"
+                >
+                  {copiedLog ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-[#3fb950]" />
+                      <span className="text-[#3fb950] font-semibold">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5 text-[#58a6ff]" />
+                      <span>Copy Output</span>
+                    </>
+                  )}
+                </button>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#238636]/20 text-[#3fb950] border border-[#238636]/40 flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#3fb950] animate-pulse" />
                   Termux PTY (POSIX /dev/ptmx)
@@ -768,16 +835,30 @@ git push -u origin ${targetBranch}
             </div>
 
             {/* Terminal Screen Logs */}
-            <div className="p-3.5 font-mono text-xs text-[#c9d1d9] min-h-[360px] max-h-[520px] overflow-y-auto space-y-1 select-text">
+            <div className="p-3.5 font-mono text-xs text-[#c9d1d9] min-h-[360px] max-h-[520px] overflow-y-auto space-y-1.5 select-text">
               {logs.map((log) => (
-                <div key={log.id} className="leading-relaxed whitespace-pre-wrap font-mono">
-                  {log.type === 'cmd' ? (
-                    <span className="text-[#58a6ff] font-bold">{log.text}</span>
-                  ) : log.type === 'ai' ? (
-                    <span className="text-[#d2a8ff] font-semibold">{log.text}</span>
-                  ) : (
-                    renderAnsiColoredText(log.text)
-                  )}
+                <div key={log.id} className="relative group leading-relaxed whitespace-pre-wrap font-mono select-text">
+                  <div className="pr-8">
+                    {log.type === 'cmd' ? (
+                      <span className="text-[#58a6ff] font-bold">{log.text}</span>
+                    ) : log.type === 'ai' ? (
+                      <span className="text-[#d2a8ff] font-semibold">{log.text}</span>
+                    ) : (
+                      renderAnsiColoredText(log.text)
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopySingleLog(log.text, log.id)}
+                    title="Copy this section"
+                    className="absolute right-1 top-0 opacity-0 group-hover:opacity-100 p-1 rounded bg-[#21262d]/90 hover:bg-[#30363d] text-[#8b949e] hover:text-[#f0f6fc] border border-[#30363d] transition-all shadow"
+                  >
+                    {copiedLogId === log.id ? (
+                      <Check className="h-3 w-3 text-[#3fb950]" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                  </button>
                 </div>
               ))}
               {isRunningCommand && (
@@ -795,6 +876,10 @@ git push -u origin ${targetBranch}
             {[
               { label: 'ESC', action: () => setCommandInput('') },
               { label: 'TAB', action: () => handleInsertChar('  ') },
+              {
+                label: 'COPY',
+                action: () => handleCopyAllLogs()
+              },
               {
                 label: 'CTRL+C',
                 action: () => {

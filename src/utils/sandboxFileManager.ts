@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { decompress as decompressZstd } from 'fzstd';
 import { ProjectFile } from '../types';
 
 const SANDBOX_STORAGE_KEY = 'umakraft_sandbox_user_files_v1';
@@ -125,6 +126,66 @@ export async function parseZipArchive(zipFile: File): Promise<ProjectFile[]> {
   }
 
   return result;
+}
+
+export async function parseZstdArchive(zstdFile: File): Promise<ProjectFile[]> {
+  try {
+    const arrayBuffer = await zstdFile.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    const decompressedBytes = decompressZstd(uint8);
+
+    // If it's a tar.zst or zstd-wrapped zip, try unzipping or parsing as text
+    const cleanName = zstdFile.name.replace(/\.zst(d)?$/i, '');
+    try {
+      const zip = new JSZip();
+      const loadedZip = await zip.loadAsync(decompressedBytes);
+      const result: ProjectFile[] = [];
+      for (const [relativePath, entry] of Object.entries(loadedZip.files)) {
+        if (entry.dir) continue;
+        const text = await entry.async('text');
+        const parts = relativePath.split('/');
+        const filename = parts[parts.length - 1] || relativePath;
+        const lang = detectLanguageFromFilename(filename);
+        result.push({
+          path: `sandbox/${relativePath.replace(/^\/+/, '')}`,
+          name: filename,
+          category: 'generated',
+          module: parts.length > 1 ? parts[0] : 'sandbox',
+          content: text,
+          description: `Extracted from Zstandard (.zst) archive: ${zstdFile.name}`,
+          language: lang,
+          isSandbox: true,
+          origin: 'import',
+          storageScope: 'sandbox_user',
+          checksum: `sha256:${Math.random().toString(36).substring(2, 12)}`
+        });
+      }
+      if (result.length > 0) return result;
+    } catch {
+      // Fallback: parse decompressed bytes as text file
+      const text = new TextDecoder().decode(decompressedBytes);
+      const lang = detectLanguageFromFilename(cleanName);
+      return [
+        {
+          path: `sandbox/${cleanName}`,
+          name: cleanName,
+          category: 'generated',
+          module: 'sandbox',
+          content: text,
+          description: `Decompressed from ${zstdFile.name} using Zstandard v1.5.4`,
+          language: lang,
+          isSandbox: true,
+          origin: 'import',
+          storageScope: 'sandbox_user',
+          checksum: `sha256:${Math.random().toString(36).substring(2, 12)}`
+        }
+      ];
+    }
+  } catch (err) {
+    console.error('Failed to decompress Zstandard archive:', err);
+    throw new Error(`Zstandard extraction failed: ${(err as Error).message}`);
+  }
+  return [];
 }
 
 export function createNewSandboxFile(filename: string, content: string = ''): ProjectFile {

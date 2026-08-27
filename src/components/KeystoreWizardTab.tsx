@@ -68,6 +68,27 @@ export const KeystoreWizardTab: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadRawKeystore = () => {
+    if (!generatedResult?.keystoreBase64) return;
+    try {
+      const byteCharacters = atob(generatedResult.keystoreBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = generatedResult.keystoreName || `${alias}.keystore`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download raw binary keystore', err);
+    }
+  };
+
   const generatedKeytoolCommand = `keytool -genkey -v -keystore ${keystoreName} -alias ${alias} -keyalg RSA -keysize ${keySize} -validity ${validityDays} -dname "CN=TermuxXCoder, OU=Dev, O=TermuxXCoder, L=Global, S=State, C=US"`;
 
   const generatedBase64Command = `# On Linux / macOS:
@@ -135,18 +156,32 @@ base64 -i ${keystoreName} -o keystore_base64.txt
 
           <div className="flex flex-wrap gap-2 pt-2">
             <button
+              onClick={handleDownloadRawKeystore}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#238636]/20 hover:bg-[#238636]/30 text-[#3fb950] text-xs font-semibold rounded-lg border border-[#238636]/40 transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Download .keystore File</span>
+            </button>
+            <button
               onClick={handleDownloadBase64Secret}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] text-[#f0f6fc] text-xs font-semibold rounded-lg border border-[#30363d] transition-colors"
             >
               <Download className="h-3.5 w-3.5 text-[#58a6ff]" />
-              <span>Download Keystore Base64 Secret</span>
+              <span>Download Base64 Secret (.txt)</span>
+            </button>
+            <button
+              onClick={() => handleCopy(generatedResult.keystoreBase64, 'copy-b64-secret')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] text-[#f0f6fc] text-xs font-semibold rounded-lg border border-[#30363d] transition-colors"
+            >
+              {copiedKey === 'copy-b64-secret' ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5 text-[#d29922]" />}
+              <span>{copiedKey === 'copy-b64-secret' ? 'Copied Base64!' : 'Copy Base64 String'}</span>
             </button>
             <button
               onClick={() => handleCopy(generatedResult.gradlePropertiesSnippet, 'gradle-props')}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] text-[#f0f6fc] text-xs font-semibold rounded-lg border border-[#30363d] transition-colors"
             >
               {copiedKey === 'gradle-props' ? <Check className="h-3.5 w-3.5 text-[#3fb950]" /> : <Copy className="h-3.5 w-3.5" />}
-              <span>Copy gradle.properties snippet</span>
+              <span>Copy gradle.properties</span>
             </button>
           </div>
         </div>

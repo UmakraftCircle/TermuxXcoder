@@ -178,6 +178,15 @@ export const TERMUX_CATALOG: TermuxPackageInfo[] = [
     binaries: ['tar']
   },
   {
+    name: 'zstd',
+    version: '1.5.4',
+    category: 'utilities',
+    description: 'Zstandard real-time compression algorithm & decompression tool',
+    size: '701 KB',
+    installed: true,
+    binaries: ['zstd', 'unzstd', 'zstdcat', 'zstdmt']
+  },
+  {
     name: 'nano',
     version: '8.0',
     category: 'utilities',
@@ -581,7 +590,17 @@ class TermuxRuntimeService {
     } else if (cmd === 'node' || cmd === 'node -v') {
       output = parts[1] === '-v' || parts[1] === '--version' ? 'v20.14.0' : `Node.js v20.14.0 (V8 12.4.254.20)`;
     } else if (cmd === 'python' || cmd === 'python3' || cmd === 'python -V' || cmd === 'python3 --version') {
-      output = 'Python 3.11.8 (main, May 14 2024, 08:30:00) [Clang 18.1.8 on linux]';
+      if (raw.includes('-m http.server')) {
+        const portMatch = raw.match(/(\d{2,5})/);
+        const bindMatch = raw.match(/--bind\s+([0-9a-zA-Z._-]+)/);
+        const port = portMatch ? portMatch[1] : '8000';
+        const host = bindMatch ? bindMatch[1] : '0.0.0.0';
+        output = `Serving HTTP on ${host} port ${port} (http://${host}:${port}/) ...\n[Process backgrounded in Termux environment]`;
+      } else {
+        output = parts[1] === '-v' || parts[1] === '-V' || parts[1] === '--version'
+          ? 'Python 3.11.8 (main, May 14 2024, 08:30:00) [Clang 18.1.8 on linux]'
+          : 'Python 3.11.8 (main, May 14 2024, 08:30:00) [Clang 18.1.8 on linux]';
+      }
     } else if (cmd === 'pip' || cmd === 'pip3') {
       output = `pip 24.0 from /data/data/com.termux/files/usr/lib/python3.11/site-packages/pip (python 3.11)`;
     } else if (cmd === 'git' || cmd === 'git --version') {
