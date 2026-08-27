@@ -39,8 +39,13 @@ import androidx.core.content.ContextCompat
 import com.umakraft.app.agent.AndroidAgentExecutor
 import com.umakraft.app.agent.AgentStepData
 import com.umakraft.app.agent.AgentStreamEvent
+import com.umakraft.app.git.GitHubActionsSync
 import com.umakraft.app.git.GitHubManager
 import com.umakraft.app.git.GitHubRepo
+import com.umakraft.app.git.ProjectType
+import com.umakraft.app.git.WorkflowConfig
+import com.umakraft.app.git.WorkflowType
+import com.umakraft.app.git.GeneratedWorkflow
 import com.umakraft.app.service.UmakraftBackgroundService
 import com.umakraft.app.storage.SecureStorage
 import com.umakraft.app.storage.WorkspaceStorageManager
@@ -211,6 +216,7 @@ fun UmakraftMainScreen() {
                     workspaceDir = storageManager.workspaceDir
                 )
                 2 -> GitHubSyncView(
+                    workspaceDir = storageManager.workspaceDir,
                     token = gitHubToken,
                     onTokenChange = { newToken ->
                         gitHubToken = newToken
@@ -822,8 +828,9 @@ fun WorkspaceDashboardView(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.APP_INTERNAL) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
                                     .clickable {
-                                        storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.APP_INTERNAL)
+                                        val (success, msg) = storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.APP_INTERNAL)
                                         refreshAll()
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                     }
                                     .padding(12.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -844,8 +851,9 @@ fun WorkspaceDashboardView(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.APP_EXTERNAL_SCOPED) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
                                     .clickable {
-                                        storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.APP_EXTERNAL_SCOPED)
+                                        val (success, msg) = storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.APP_EXTERNAL_SCOPED)
                                         refreshAll()
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                     }
                                     .padding(12.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -853,7 +861,7 @@ fun WorkspaceDashboardView(
                             ) {
                                 Column {
                                     Text("2. External App Storage (High Capacity)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("/Android/data/... (Gigabyte-ready, no permissions required)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("/Android/data/... (Gigabyte-ready, scoped storage)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.APP_EXTERNAL_SCOPED) {
                                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -866,10 +874,12 @@ fun WorkspaceDashboardView(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (storageManager.currentLocationType == WorkspaceStorageManager.StorageLocationType.SHARED_EXTERNAL) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
                                     .clickable {
-                                        if (hasStoragePermission) {
-                                            storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.SHARED_EXTERNAL)
+                                        val (success, msg) = storageManager.setLocationType(WorkspaceStorageManager.StorageLocationType.SHARED_EXTERNAL)
+                                        if (success) {
                                             refreshAll()
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                         } else {
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                             onRequestStorage()
                                         }
                                     }
@@ -1061,6 +1071,7 @@ fun WorkspaceDashboardView(
 
 @Composable
 fun GitHubSyncView(
+    workspaceDir: File,
     token: String,
     onTokenChange: (String) -> Unit,
     isAuthenticated: Boolean,
@@ -1070,6 +1081,67 @@ fun GitHubSyncView(
     onAuthenticate: () -> Unit,
     onOpenPush: (GitHubRepo) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var selectedProjectType by remember { mutableStateOf(ProjectType.AUTO_DETECT) }
+    var selectedWorkflowType by remember { mutableStateOf(WorkflowType.CI_BUILD_TEST) }
+    var targetBranch by remember { mutableStateOf("main") }
+    var customWorkflowName by remember { mutableStateOf("CI Pipeline") }
+    var enableCaching by remember { mutableStateOf(true) }
+    var runLint by remember { mutableStateOf(true) }
+    var runTests by remember { mutableStateOf(true) }
+    var buildArtifact by remember { mutableStateOf(true) }
+    var jdkVersion by remember { mutableStateOf("17") }
+    var nodeVersion by remember { mutableStateOf("20.x") }
+
+    var generatedWorkflow by remember {
+        mutableStateOf(
+            GitHubActionsSync.generateWorkflow(
+                projectType = selectedProjectType,
+                workflowType = selectedWorkflowType,
+                config = WorkflowConfig(
+                    workflowName = customWorkflowName,
+                    targetBranch = targetBranch,
+                    jdkVersion = jdkVersion,
+                    nodeVersion = nodeVersion,
+                    enableCaching = enableCaching,
+                    runLint = runLint,
+                    runTests = runTests,
+                    buildArtifact = buildArtifact
+                ),
+                workspaceDir = workspaceDir
+            )
+        )
+    }
+
+    var isPushingWorkflow by remember { mutableStateOf(false) }
+    var selectedRemoteRepoForSync by remember { mutableStateOf(repos.firstOrNull()?.fullName ?: "") }
+
+    LaunchedEffect(repos) {
+        if (selectedRemoteRepoForSync.isBlank() && repos.isNotEmpty()) {
+            selectedRemoteRepoForSync = repos.first().fullName
+        }
+    }
+
+    fun regenerateWorkflow() {
+        generatedWorkflow = GitHubActionsSync.generateWorkflow(
+            projectType = selectedProjectType,
+            workflowType = selectedWorkflowType,
+            config = WorkflowConfig(
+                workflowName = customWorkflowName,
+                targetBranch = targetBranch,
+                jdkVersion = jdkVersion,
+                nodeVersion = nodeVersion,
+                enableCaching = enableCaching,
+                runLint = runLint,
+                runTests = runTests,
+                buildArtifact = buildArtifact
+            ),
+            workspaceDir = workspaceDir
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1135,6 +1207,210 @@ fun GitHubSyncView(
                                 .padding(8.dp)
                         ) {
                             Text("✓ $authUserMessage", fontSize = 12.sp, color = Color(0xFF3FB950), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- GitHub Actions CI/CD Workflow Generator & Syncer ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AccountTree, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("GitHubActionsSync Engine", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF1F6FEB).copy(alpha = 0.2f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(generatedWorkflow.detectedType.displayName, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    Text(
+                        "Auto-detects codebase architecture and generates or syncs tailored .github/workflows YAML files for continuous integration, testing, and release delivery.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                    )
+
+                    // Project Type Selector Chips
+                    Text("1. Target Stack Architecture:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ProjectType.values().forEach { type ->
+                            FilterChip(
+                                selected = selectedProjectType == type,
+                                onClick = {
+                                    selectedProjectType = type
+                                    regenerateWorkflow()
+                                },
+                                label = { Text(if (type == ProjectType.AUTO_DETECT) "Auto" else type.name.substringBefore("_"), fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    // Workflow Preset Selector Chips
+                    Text("2. Workflow Objective:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        WorkflowType.values().forEach { wf ->
+                            FilterChip(
+                                selected = selectedWorkflowType == wf,
+                                onClick = {
+                                    selectedWorkflowType = wf
+                                    regenerateWorkflow()
+                                },
+                                label = { Text(wf.defaultFileName, fontSize = 11.sp, fontFamily = FontFamily.Monospace) }
+                            )
+                        }
+                    }
+
+                    // Customization Fields
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = targetBranch,
+                            onValueChange = {
+                                targetBranch = it
+                                regenerateWorkflow()
+                            },
+                            label = { Text("Trigger Branch") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = customWorkflowName,
+                            onValueChange = {
+                                customWorkflowName = it
+                                regenerateWorkflow()
+                            },
+                            label = { Text("Workflow Name") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    // Toggle Checkboxes for CI Steps
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = enableCaching,
+                                onCheckedChange = {
+                                    enableCaching = it
+                                    regenerateWorkflow()
+                                }
+                            )
+                            Text("Enable Build & Dependency Caching (Gradle/npm/pip)", fontSize = 12.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = runLint,
+                                onCheckedChange = {
+                                    runLint = it
+                                    regenerateWorkflow()
+                                }
+                            )
+                            Text("Include Lint & Static Code Diagnostics Check", fontSize = 12.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = runTests,
+                                onCheckedChange = {
+                                    runTests = it
+                                    regenerateWorkflow()
+                                }
+                            )
+                            Text("Execute Automated Unit & Integration Tests", fontSize = 12.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = buildArtifact,
+                                onCheckedChange = {
+                                    buildArtifact = it
+                                    regenerateWorkflow()
+                                }
+                            )
+                            Text("Package and Upload Build Artifacts (APK / dist)", fontSize = 12.sp)
+                        }
+                    }
+
+                    // YAML Preview Box
+                    Text("YAML Workflow Source: ${generatedWorkflow.relativePath}", fontWeight = FontWeight.Bold, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 180.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .padding(10.dp)
+                    ) {
+                        LazyColumn {
+                            item {
+                                Text(
+                                    generatedWorkflow.content,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF7EE787)
+                                )
+                            }
+                        }
+                    }
+
+                    // Action Buttons: Local Sync & Remote Sync
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                val (ok, msg) = GitHubActionsSync.syncToLocalWorkspace(workspaceDir, generatedWorkflow)
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save Locally", fontSize = 12.sp)
+                        }
+
+                        if (isAuthenticated && repos.isNotEmpty()) {
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        isPushingWorkflow = true
+                                        val targetRepo = selectedRemoteRepoForSync.ifBlank { repos.first().fullName }
+                                        val manager = GitHubManager(token)
+                                        val res = GitHubActionsSync.syncToRemoteGitHub(
+                                            githubManager = manager,
+                                            repoFullName = targetRepo,
+                                            branch = targetBranch,
+                                            workflow = generatedWorkflow
+                                        )
+                                        Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                        isPushingWorkflow = false
+                                    }
+                                },
+                                enabled = !isPushingWorkflow,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                if (isPushingWorkflow) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White)
+                                } else {
+                                    Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Sync to Remote", fontSize = 12.sp)
+                            }
                         }
                     }
                 }

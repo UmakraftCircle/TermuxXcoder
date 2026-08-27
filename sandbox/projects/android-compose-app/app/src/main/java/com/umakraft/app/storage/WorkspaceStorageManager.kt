@@ -4,7 +4,10 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 data class StorageSpaceInfo(
     val path: String,
@@ -39,30 +42,37 @@ data class WorkspaceFileInfo(
 }
 
 /**
- * Robust Multi-Tier Storage Manager for UmaKraft IDE & AI Model Storage:
- * 1. App-Private Files: `context.filesDir` (No permissions required, completely isolated)
- * 2. External App Storage: `context.getExternalFilesDir(null)` (High capacity, no permission required on Android 4.4+)
- * 3. Shared Global Storage: `/sdcard/UmaKraft/` (Requires MANAGE_EXTERNAL_STORAGE for cross-app & Termux access)
+ * Hardened Multi-Tier Storage Manager for UmaKraft IDE & AI Model Storage
+ * Enforces Scoped Storage, Canonical Path Boundaries (Anti-Traversal), and Atomic Disk I/O.
  */
 class WorkspaceStorageManager(private val context: Context) {
 
     enum class StorageLocationType {
-        APP_INTERNAL,       // /data/user/0/com.umakraft.app/files/
-        APP_EXTERNAL_SCOPED, // /storage/emulated/0/Android/data/com.umakraft.app/files/
-        SHARED_EXTERNAL     // /storage/emulated/0/UmaKraft/
+        APP_INTERNAL,        // /data/user/0/com.umakraft.app/files/ (Private, zero permissions required)
+        APP_EXTERNAL_SCOPED, // /storage/emulated/0/Android/data/com.umakraft.app/files/ (High-capacity scoped storage)
+        SHARED_EXTERNAL      // /storage/emulated/0/UmaKraft/ (Requires explicit permissions or throws error)
     }
 
     var currentLocationType: StorageLocationType = StorageLocationType.APP_INTERNAL
         private set
 
     init {
-        // Initialize default storage folders
         initializeStorageDirectories()
     }
 
-    fun setLocationType(type: StorageLocationType) {
+    /**
+     * Attempts to switch storage tier. Returns success/failure description.
+     */
+    fun setLocationType(type: StorageLocationType): Pair<Boolean, String> {
+        if (type == StorageLocationType.SHARED_EXTERNAL) {
+            val hasManagerPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+            if (!hasManagerPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                return Pair(false, "Shared external storage requires MANAGE_EXTERNAL_STORAGE permission. Tier not switched.")
+            }
+        }
         currentLocationType = type
-        initializeStorageDirectories()
+        val success = initializeStorageDirectories()
+        return Pair(success, "Active storage set to ${getBaseDir().absolutePath}")
     }
 
     /**
@@ -73,14 +83,7 @@ class WorkspaceStorageManager(private val context: Context) {
             StorageLocationType.APP_INTERNAL -> context.filesDir
             StorageLocationType.APP_EXTERNAL_SCOPED -> context.getExternalFilesDir(null) ?: context.filesDir
             StorageLocationType.SHARED_EXTERNAL -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                    File(Environment.getExternalStorageDirectory(), "UmaKraft")
-                } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                    File(Environment.getExternalStorageDirectory(), "UmaKraft")
-                } else {
-                    // Safe fallback if shared permissions aren't granted
-                    context.getExternalFilesDir(null) ?: context.filesDir
-                }
+                File(Environment.getExternalStorageDirectory(), "UmaKraft")
             }
         }
     }
@@ -98,7 +101,29 @@ class WorkspaceStorageManager(private val context: Context) {
         get() = File(getBaseDir(), "temp")
 
     /**
-     * Creates all essential workspace and AI model storage folders
+     * Safely resolves a relative path within workspace boundaries, preventing directory traversal
+     */
+    fun resolveSafeWorkspaceFile(relativePath: String): File? {
+        val cleanPath = relativePath.trim()
+        if (cleanPath.contains("..") || cleanPath.startsWith("/") || cleanPath.startsWith("\\")) {
+            return null
+        }
+        val target = File(workspaceDir, cleanPath)
+        return try {
+            val canonicalRoot = workspaceDir.canonicalPath
+            val canonicalTarget = target.canonicalPath
+            if (canonicalTarget.startsWith(canonicalRoot)) {
+                target
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Initializes storage hierarchy and templates
      */
     fun initializeStorageDirectories(): Boolean {
         return try {
@@ -110,29 +135,18 @@ class WorkspaceStorageManager(private val context: Context) {
             if (!logsDir.exists()) logsDir.mkdirs()
             if (!tempDir.exists()) tempDir.mkdirs()
 
-            // Create initial placeholder / README in workspace if empty
             val welcomeFile = File(workspaceDir, "README.md")
             if (!welcomeFile.exists()) {
                 welcomeFile.writeText(
                     "# UmaKraft Local Workspace\n\n" +
                     "Files created here are managed by the AI Agent and the UmaKraft IDE.\n" +
-                    "- Models Directory: `models/` (Store GGUF/ONNX/Tensor models here)\n" +
+                    "- Models Directory: `models/`\n" +
                     "- Projects Directory: `workspace/`\n" +
                     "- Storage Root: `${base.absolutePath}`\n"
                 )
             }
-
-            // Create models catalog info
-            val modelsReadme = File(modelsDir, "README_MODELS.txt")
-            if (!modelsReadme.exists()) {
-                modelsReadme.writeText(
-                    "Store offline AI LLM models (e.g. Qwen2.5, DeepSeek-R1-GGUF, Llama-3-GGUF) in this folder.\n" +
-                    "Path: ${modelsDir.absolutePath}\n"
-                )
-            }
             true
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
@@ -163,10 +177,15 @@ class WorkspaceStorageManager(private val context: Context) {
     }
 
     /**
-     * List all workspace files and directories
+     * List all workspace files and directories with path validation
      */
     fun listWorkspaceFiles(subDirRelativePath: String = ""): List<WorkspaceFileInfo> {
-        val targetDir = if (subDirRelativePath.isBlank()) workspaceDir else File(workspaceDir, subDirRelativePath)
+        val targetDir = if (subDirRelativePath.isBlank()) {
+            workspaceDir
+        } else {
+            resolveSafeWorkspaceFile(subDirRelativePath) ?: return emptyList()
+        }
+
         if (!targetDir.exists() || !targetDir.isDirectory) return emptyList()
 
         return targetDir.listFiles()?.map { file ->
@@ -196,56 +215,83 @@ class WorkspaceStorageManager(private val context: Context) {
         }?.sortedByDescending { it.sizeBytes } ?: emptyList()
     }
 
+    /**
+     * Creates a file safely with anti-traversal check and atomic write
+     */
     fun createFile(relativePath: String, content: String): Boolean {
+        val file = resolveSafeWorkspaceFile(relativePath) ?: return false
         return try {
-            val file = File(workspaceDir, relativePath)
             file.parentFile?.mkdirs()
-            file.writeText(content)
+            val temp = File.createTempFile("uk_write_", ".tmp", tempDir)
+            temp.writeText(content, Charsets.UTF_8)
+            if (file.exists()) file.delete()
+            temp.renameTo(file)
             true
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
 
+    /**
+     * Creates a directory safely with anti-traversal check
+     */
     fun createDirectory(relativePath: String): Boolean {
+        val dir = resolveSafeWorkspaceFile(relativePath) ?: return false
         return try {
-            val dir = File(workspaceDir, relativePath)
             dir.mkdirs()
+            true
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
 
+    /**
+     * Deletes a file or directory strictly inside workspace boundaries
+     */
     fun deleteItem(file: File): Boolean {
         return try {
+            val canonicalRoot = getBaseDir().canonicalPath
+            val canonicalTarget = file.canonicalPath
+            if (!canonicalTarget.startsWith(canonicalRoot)) {
+                return false // Reject files outside base sandbox
+            }
             if (file.isDirectory) file.deleteRecursively() else file.delete()
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
 
+    /**
+     * Reads file content with validation
+     */
     fun readFileContent(file: File): String {
         return try {
-            if (file.exists() && file.isFile) file.readText() else ""
+            val canonicalRoot = getBaseDir().canonicalPath
+            val canonicalTarget = file.canonicalPath
+            if (!canonicalTarget.startsWith(canonicalRoot)) {
+                return "Error: Access denied (Outside workspace boundary)"
+            }
+            if (file.exists() && file.isFile) file.readText(Charsets.UTF_8) else ""
         } catch (e: Exception) {
             "Error reading file: ${e.localizedMessage}"
         }
     }
 
+    suspend fun readFileContentAsync(file: File): String = withContext(Dispatchers.IO) {
+        readFileContent(file)
+    }
+
     fun testStorageWriteRead(): Pair<Boolean, String> {
         return try {
             val testFile = File(tempDir, "storage_test_${System.currentTimeMillis()}.tmp")
-            val sampleData = "UmaKraft Storage Test Write Verification - " + System.currentTimeMillis()
-            testFile.writeText(sampleData)
-            val readData = testFile.readText()
+            val sampleData = "UmaKraft Verified Storage Test - ${System.currentTimeMillis()}"
+            testFile.writeText(sampleData, Charsets.UTF_8)
+            val readData = testFile.readText(Charsets.UTF_8)
             testFile.delete()
             if (readData == sampleData) {
-                Pair(true, "Storage read/write verified on ${getBaseDir().absolutePath}")
+                Pair(true, "Storage verified on ${getBaseDir().absolutePath}")
             } else {
-                Pair(false, "Storage verification mismatch")
+                Pair(false, "Storage read/write mismatch")
             }
         } catch (e: Exception) {
             Pair(false, "Storage test failed: ${e.localizedMessage}")

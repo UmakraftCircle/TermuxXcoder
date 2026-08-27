@@ -3,6 +3,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import util from 'util';
 import { ToolDefinition, ToolHandler, AgentExecutionContext } from './types.js';
+import { GitHubActionsSync, ProjectStack, WorkflowType } from './GitHubActionsSync.js';
 
 const execPromise = util.promisify(exec);
 
@@ -12,6 +13,20 @@ export class ToolRegistry {
 
   constructor() {
     this.registerBuiltInTools();
+  }
+
+  private resolveSafePath(workspaceRoot: string, requestedPath: string): string | null {
+    if (!requestedPath || typeof requestedPath !== 'string') return null;
+    const cleanPath = requestedPath.trim();
+    if (cleanPath.includes('..')) return null;
+
+    const resolvedRoot = path.resolve(workspaceRoot);
+    const targetPath = path.resolve(resolvedRoot, cleanPath);
+
+    if (targetPath.startsWith(resolvedRoot)) {
+      return targetPath;
+    }
+    return null;
   }
 
   public registerTool(definition: ToolDefinition, handler: ToolHandler, isHighRisk = false) {
@@ -78,9 +93,9 @@ export class ToolRegistry {
         }
       },
       async (args, ctx) => {
-        const fullPath = path.resolve(ctx.workspaceRoot, args.filePath);
-        if (!fs.existsSync(fullPath)) {
-          return { success: false, output: '', error: `File not found: ${args.filePath}` };
+        const fullPath = this.resolveSafePath(ctx.workspaceRoot, args.filePath);
+        if (!fullPath || !fs.existsSync(fullPath)) {
+          return { success: false, output: '', error: `File not found or access denied: ${args.filePath}` };
         }
         const raw = fs.readFileSync(fullPath, 'utf-8');
         const lines = raw.split('\n');
@@ -106,7 +121,10 @@ export class ToolRegistry {
         }
       },
       async (args, ctx) => {
-        const fullPath = path.resolve(ctx.workspaceRoot, args.filePath);
+        const fullPath = this.resolveSafePath(ctx.workspaceRoot, args.filePath);
+        if (!fullPath) {
+          return { success: false, output: '', error: `Invalid or unsafe file path: ${args.filePath}` };
+        }
         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
         fs.writeFileSync(fullPath, args.content, 'utf-8');
         return { success: true, output: `Successfully wrote ${args.content.length} characters to ${args.filePath}` };
@@ -129,9 +147,9 @@ export class ToolRegistry {
         }
       },
       async (args, ctx) => {
-        const fullPath = path.resolve(ctx.workspaceRoot, args.filePath);
-        if (!fs.existsSync(fullPath)) {
-          return { success: false, output: '', error: `File not found: ${args.filePath}` };
+        const fullPath = this.resolveSafePath(ctx.workspaceRoot, args.filePath);
+        if (!fullPath || !fs.existsSync(fullPath)) {
+          return { success: false, output: '', error: `File not found or access denied: ${args.filePath}` };
         }
         const current = fs.readFileSync(fullPath, 'utf-8');
         if (!current.includes(args.targetContent)) {
@@ -157,9 +175,9 @@ export class ToolRegistry {
         }
       },
       async (args, ctx) => {
-        const target = path.resolve(ctx.workspaceRoot, args.dirPath || '.');
-        if (!fs.existsSync(target)) {
-          return { success: false, output: '', error: `Directory not found: ${args.dirPath}` };
+        const target = this.resolveSafePath(ctx.workspaceRoot, args.dirPath || '.');
+        if (!target || !fs.existsSync(target)) {
+          return { success: false, output: '', error: `Directory not found or access denied: ${args.dirPath}` };
         }
         const entries = fs.readdirSync(target, { withFileTypes: true });
         const list = entries.map(e => `${e.isDirectory() ? '[DIR] ' : '[FILE]'} ${e.name}`).join('\n');
@@ -171,7 +189,7 @@ export class ToolRegistry {
     this.registerTool(
       {
         name: 'terminal_exec',
-        description: 'Executes a POSIX shell command in the project environment and returns stdout/stderr/exitCode.',
+        description: 'Executes a POSIX shell command in the project environment within workspace boundaries.',
         parameters: {
           type: 'object',
           properties: {
@@ -182,7 +200,10 @@ export class ToolRegistry {
         }
       },
       async (args, ctx) => {
-        const execDir = path.resolve(ctx.workspaceRoot, args.cwd || '.');
+        const execDir = this.resolveSafePath(ctx.workspaceRoot, args.cwd || '.');
+        if (!execDir) {
+          return { success: false, output: '', error: `Invalid or unsafe working directory: ${args.cwd}` };
+        }
         try {
           const { stdout, stderr } = await execPromise(args.command, {
             cwd: execDir,
@@ -218,20 +239,80 @@ export class ToolRegistry {
       },
       async (args, ctx) => {
         const results: string[] = [];
+        const root = path.resolve(ctx.workspaceRoot);
+        
         if (args.projectType === 'node' || args.projectType === 'all') {
-          try {
-            results.push('✓ Node.js syntax & types verified clean.');
-          } catch (e: any) {
-            return { success: false, output: '', error: `Node verification failed: ${e.message}` };
-          }
-        }
-        if (args.projectType === 'python' || args.projectType === 'all') {
-          results.push('✓ Python modules and requirements verified.');
+          const hasPackageJson = fs.existsSync(path.join(root, 'package.json'));
+          results.push(hasPackageJson ? '✓ Node.js package structure detected.' : '- Node.js package.json not found in root.');
         }
         if (args.projectType === 'android' || args.projectType === 'all') {
-          results.push('✓ Android Gradle Kotlin Compose manifests checked.');
+          const hasGradle = fs.existsSync(path.join(root, 'build.gradle.kts')) || fs.existsSync(path.join(root, 'app/build.gradle.kts'));
+          results.push(hasGradle ? '✓ Android Gradle build files detected.' : '- Android build.gradle.kts not found.');
+        }
+        if (args.projectType === 'python' || args.projectType === 'all') {
+          const hasPy = fs.existsSync(path.join(root, 'requirements.txt')) || fs.existsSync(path.join(root, 'main.py'));
+          results.push(hasPy ? '✓ Python project structure detected.' : '- Python files not found in root.');
         }
         return { success: true, output: results.join('\n') };
+      }
+    );
+
+    // 7. github_actions_workflow_sync
+    this.registerTool(
+      {
+        name: 'github_actions_workflow_sync',
+        description: 'Generates or updates production-ready .github/workflows YAML files based on project structure (Android, Node.js, Python, or Full-Stack).',
+        parameters: {
+          type: 'object',
+          properties: {
+            stack: {
+              type: 'string',
+              enum: ['auto', 'android', 'node', 'python', 'multiplatform'],
+              description: 'Project technology stack (use "auto" for auto-detection)'
+            },
+            workflowType: {
+              type: 'string',
+              enum: ['ci', 'release', 'quality'],
+              description: 'Type of CI/CD workflow to generate'
+            },
+            targetBranch: {
+              type: 'string',
+              description: 'Default branch trigger (default: main)'
+            },
+            workflowName: {
+              type: 'string',
+              description: 'Custom name for the GitHub Action workflow'
+            },
+            autoWriteToWorkspace: {
+              type: 'boolean',
+              description: 'If true, automatically saves to .github/workflows/'
+            }
+          },
+          required: []
+        }
+      },
+      async (args, ctx) => {
+        const stack = (args.stack || 'auto') as ProjectStack;
+        const workflowType = (args.workflowType || 'ci') as WorkflowType;
+        const workflow = GitHubActionsSync.generateWorkflow(ctx.workspaceRoot, stack, workflowType, {
+          workflowName: args.workflowName,
+          targetBranch: args.targetBranch || 'main'
+        });
+
+        let writeResult = '';
+        if (args.autoWriteToWorkspace !== false) {
+          const syncRes = GitHubActionsSync.syncToWorkspace(ctx.workspaceRoot, workflow);
+          if (syncRes.success) {
+            writeResult = `\nSaved to workspace: ${workflow.relativePath}`;
+          } else {
+            writeResult = `\nWorkspace save warning: ${syncRes.error}`;
+          }
+        }
+
+        return {
+          success: true,
+          output: `Generated GitHub Actions Workflow [${workflow.fileName}] for stack: ${workflow.detectedStack}${writeResult}\n\nYAML Preview:\n---\n${workflow.content}`
+        };
       }
     );
   }
