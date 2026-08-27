@@ -189,12 +189,18 @@ fun UmakraftMainScreen() {
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.CloudSync, contentDescription = null) },
-                    label = { Text("GitHub") }
+                    icon = { Icon(Icons.Default.Terminal, contentDescription = null) },
+                    label = { Text("Termux") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.CloudSync, contentDescription = null) },
+                    label = { Text("GitHub") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
                     icon = { Icon(Icons.Default.Security, contentDescription = null) },
                     label = { Text("System") }
                 )
@@ -215,7 +221,10 @@ fun UmakraftMainScreen() {
                 1 -> AutonomousAgentView(
                     workspaceDir = storageManager.workspaceDir
                 )
-                2 -> GitHubSyncView(
+                2 -> com.umakraft.app.ui.TermuxBridgeTab(
+                    workspacePath = storageManager.workspaceDir.absolutePath
+                )
+                3 -> GitHubSyncView(
                     workspaceDir = storageManager.workspaceDir,
                     token = gitHubToken,
                     onTokenChange = { newToken ->
@@ -247,7 +256,7 @@ fun UmakraftMainScreen() {
                         showPushDialog = true
                     }
                 )
-                3 -> PermissionsAndBackgroundView(
+                4 -> PermissionsAndBackgroundView(
                     hasStoragePermission = hasStoragePermission,
                     hasBatteryExemption = hasBatteryExemption,
                     isBackgroundServiceRunning = isBackgroundServiceRunning,
